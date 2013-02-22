@@ -32,6 +32,7 @@ StringRef * loopCond= new StringRef ("for.cond");
 StringRef * loopEnd= new StringRef ("for.end");
 StringRef * loopBody = new StringRef ("for.body");
 StringRef * main = new StringRef ("main");
+StringRef * main1 = new StringRef ("MAIN__");  //needed for f2c converted c files
 int loop_count = 0;
 //AllocaInst* alloca_count; 
 PointerType* PointerTy_1;
@@ -91,8 +92,19 @@ namespace{
 		
 						++loop_count;
 						Loop * L = LI.getLoopFor(F);
-						if(candidateLoop(L,LI,SE))
+						
+						BasicBlock * BB1;
+						if(L)
+							//check if the loop is a candidate loop
+							BB1 = L->getUniqueExitBlock();
+							
+						std::vector<Loop*> LoopBlocks = L->getSubLoops();
+							
+						
+						if(L && (BB1 && LoopBlocks.empty()) && 
+							!(isa<SCEVCouldNotCompute>(SE.getBackedgeTakenCount(L))))
 						{
+							//we got a candidate loop
 							std::string count1;
 							ostringstream convert; 
 							convert << loop_count; 
@@ -138,15 +150,20 @@ namespace{
 									}
 								}//end of for
 							}//if(BB)
-						}//if candidate loop
+						}//end of if candidate loop						
 				}//end of if (!((F->getName().find(*loopCond,0)))) 
 				
 				Loop * L = LI.getLoopFor(F);
 				
 				if(L)
 				{
-					if(candidateLoop(L,LI,SE))
+					//check if it's a candidate loop
+					BasicBlock * BB1 = L->getUniqueExitBlock();
+					std::vector<Loop*> LoopBlocks = L->getSubLoops();
+						
+					if((BB1 && LoopBlocks.empty()) && !(isa<SCEVCouldNotCompute>(SE.getBackedgeTakenCount(L))))
 					{
+						//it's a candidate loop
 						if (!(F->getName().find(*loopBody,0)))
 						{
 							LoadInst* int32_16 = new LoadInst(IterationCount, "", false);
@@ -243,7 +260,7 @@ namespace{
 								}//end of "if store instruction"
 							}//end of for
 						}//if loopBody
-					}//if candidate loop
+					}//end of if candidate loop
 				}//end of if(L)
 
 				//we also have to add a call to write_to_file at the last basic block from main()
@@ -264,8 +281,9 @@ namespace{
 								//errs() << func -> getName() << "\n";
 								Function * func55 = (Function *)func;
 								StringRef name = func55->getName();
-								if (!(name.find(*main,0)))
+								if (!(name.find(*main,0)) || !(name.find(*main1,0)))
 								{
+									errs()<<"Found main\n";
 									if(func4)
 									{
 										Function *func1;
@@ -313,7 +331,7 @@ namespace{
 		AU.addPreserved<ScalarEvolution>();
 	}
 
-	bool candidateLoop(Loop *L, LoopInfo &LIF, ScalarEvolution &S);
+	//bool candidateLoop(Loop *L, LoopInfo &LIF, ScalarEvolution &S);
 	
     };
 }
@@ -323,7 +341,7 @@ static RegisterPass<ProfileDependence> X("profileDependence", "profile memory de
 
 //helper functions
 
-static bool candidateLoop(Loop *L, LoopInfo &LIF, ScalarEvolution &S)
+/*static bool candidateLoop(Loop *L, LoopInfo &LIF, ScalarEvolution &S)
 {
 		//check whether the loop has a dedicated exit block
 		BasicBlock * BB = L->getUniqueExitBlock();
@@ -362,4 +380,4 @@ static bool candidateLoop(Loop *L, LoopInfo &LIF, ScalarEvolution &S)
 
 		}//loop iterator
 		return true;
-}
+}*/
