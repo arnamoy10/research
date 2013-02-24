@@ -729,12 +729,55 @@ Figure \ref{fig:profile_file} shows a sample profile file.\\
 
 \chapter{Experimental Evaluation}
 
-This chapter describes the experimental evaluation.  The initial experiments were done using the Polyhedral Dependence analyzer in LLVM, called Polly.  Later the dependence analysis pass of LLVM was used and also the effect of higher optimization levels of the compiler and the effect of automatic vetorization was studied.  The benchmarks chosen were the ones used in TLS literature before.
+This chapter describes the experimental evaluation of benchmarks using the LLVM compiler in the BlueGene/Q machine.  The initial experiments are done using the Polyhedral Dependence analyzer in LLVM, called \textit{Polly}.  First, using a simple heuristics, loops with \textit{may dependences} are allowed to speculatively execute in parallel with a hope to get performance improvement.  The heuristic is then modified to filter out cold loops and, with the help of profiling, loops where may dependences materialize at runtime.  The initial experimentation takes the sequential version of the program at the lowest optimization level and does not consider the effect of SIMDization or other loop transformation performed at higher levels of optimization.  A performance comparison with the automatic OpenMP parallelized code by Polly is also done.\\
 
-\section{Heuristics for Speculative Parallelization using the polyhedral dependence analyzer of LLVM}
+In the second set of experiments, the dependence analysis pass of LLVM was used and also the effect of higher optimization levels of the compiler and the effect of automatic SIMDization is studied.  A comparison among three parallel version of the code - SIMDized, automatic OpenMP parallelized and speculatively parallelized is also done. The benchmarks chosen were the ones used in TLS literature before.
+
+\section{Variability of Loops' Dependence Behaviour based on Inputs}
+
+One important finding of this research is that the dependence behaviour of loops that has the properties to be speculation candidates, \textit{doesn't change} with respect to the different inputs to the program.  The dependence behaviour of loops from the benchmarks that were used in TLS research before (and are available) is observed for different inputs and \textit{there was not a single loop that has the specific properties for being a TLS candidate and whose dependence behaviour varies with different inputs}.  This finding allows to use a simple heuristic for selection of speculation candidates based on profiling.  If the loop is dependent, the loop is not speculated.  But if the loops is found to be independent, it is speculatively parallelized.  Still more speculation candidates are discovered using this heuristic because all of these candidate loops have \textit{may dependences} which prevents the compiler from parallelizing them.  Table~\ref{table:benchmarks_observed} gives the list of benchmarks that are investigated to find loops with varied dependence behaviour.\\
+
+\begin{table}
+\centering
+\caption{The Benchmarks observed to find loops with varied dependence behaviour }
+\begin{tabular}{|c|c||c|c|} \hline
+Benchmark Suite & Benchmark Name & Benchmark Suite & Benchmark Name \\ \hline 
+Spec2006 & lbm & Spec2006 & h264ref \\ \hline
+Spec2006 & hmmer & Spec2006 & mcf \\ \hline
+Spec2006 & sjeng & Spec2006 & sphinx3  \\ \hline
+Spec2006 & bzip2   & Spec2006 & gobmk  \\ \hline
+Spec2006 & milc  & Spec2006 & namd   \\ \hline
+PolyBench/C & 2mm	 &PolyBench/C & 3mm \\ \hline
+PolyBench/C & gemm& PolyBench/C & gramschmidt\\ \hline
+PolyBench/C & jacobi &PolyBench/C & lu	 \\ \hline
+PolyBench/C & seidel &PolyBench/C & cholesky \\ \hline
+PolyBench/C & dynprog &PolyBench/C & fdtd\_2d  \\ \hline
+BioBench & mummer  &BioBench & protdist  \\ \hline
+BioBench & protpar  &BioBench & dnapars  \\ \hline
+BioBench & dnamove  &BioBench & dnapenny  \\ \hline
+BioBench & dnacomp  &BioBench & dnainvar  \\ \hline
+BioBench & dnaml  &BioBench & dnaml2  \\ \hline
+BioBench & dnamlk  &BioBench & dnamlk2  \\ \hline
+BioBench & dnadist  &BioBench & dollop  \\ \hline
+BioBench & dolmove  &BioBench & dolpenny  \\ \hline
+BioBench & restml  &BioBench & restml2  \\ \hline
+BioBench & seqboot  &BioBench & fitch  \\ \hline
+BioBench & kitsch  &BioBench & neighbor  \\ \hline
+BioBench & gendist &BioBench & tigr  \\ \hline
+BioBench & clustalw &BioBench & hmmer  \\ \hline
+NAS & BT & NAS & CG  \\ \hline
+NAS & DC & NAS & EP  \\ \hline
+NAS & FT & NAS & IS  \\ \hline
+NAS & LU & NAS & MG  \\ \hline
+NAS & SP & NAS & UA  \\ \hline
+\hline\end{tabular}
+\label{table:benchmarks_observed}
+\end{table}
+
+\section{Speculative Parallelization using the polyhedral dependence analyzer of LLVM}
 \label{section:heuristics}
 
-For the initial experimentation, two simple heuristics used to find speculation candidates are described.  The first heuristic relaxes the constraints of OpenMP parallelization by allowing loops with \textit{may dependences} to be speculatively executed in parallel.  The second heuristic is an extension of the first heuristic to filter out loops with run-time dependence (with the help of profiling) and cold loops (because they are not \textit{good} candidate for speculation and may cause slowdown).
+For the initial experimentation, the following two heuristics are used.  
 
 \subsection{Heuristic 1}
 
@@ -745,7 +788,7 @@ According to the first heuristic,  for being a speculation candidate a \textit{S
 Heuristic 1 allows loops with \textit{may dependences} to execute in parallel.  There can be two cases where the overhead of speculation can still negate the gain from parallelism. In heuristic 2, the two criteria for filtering are based on two different overheads. The first criteria considers the overhead from mispeculation and recovery while the second criteria considers the overhead from thread creation and storing the program state so that the system can be rolled back to a consistent state in case of mispeculation.  In this way loops that can not be benefited from SE are filtered. 
 
 \begin{enumerate}
-\item In the loops where \textit{Polly} reports only \textit{may dependences}, the memory accesses are profiled for a training run for some input.  If the training run shows that the \textit{may dependences} are materializing into \textit{true dependence}(Here true dependence means dependence occurring at run time, not \textit{read after write} (RAW) dependence) at run time, the loop is not parallelized.
+\item In the loops where \textit{Polly} reports only \textit{may dependences}, the memory accesses are profiled for a training run for some inputs.  If the training run shows that the \textit{may dependences} are materializing into \textit{true dependence}(Here true dependence means dependence occurring at run time, not \textit{read after write} (RAW) dependence) at run time, the loop is not parallelized.
 \item If the execution time of the loop is less than some threshold as compared to the total execution time of the program, the loop also is not speculatively parallelized.  As in this case, the overhead from speculation can neutralize or worse, negate the gain from parallelism. This threshold is set as 20\% of the total execution time because experimental evaluation shows that allowing  the speculative execution of smaller loops for the benchmarks leads to slowdown. 
 \end{enumerate}
 
@@ -762,16 +805,16 @@ The instrumented source code is then compiled with the \textit{bgxlc\_r} (\_r op
 
 \section{Experimentation}
 
-Experimentation was performed on two different set of benchmarks - SPEC2006 benchmarks~\cite{spec}  and the PolyBench/C benchmarks~\cite{polybench}.  SPEC2006 was chosen because it has been used by other researchers for the evaluation of speculative execution. All the SPEC2006 benchmarks are not reported because some of them don't run successfully on BlueGene/Q.  PolyBench/C benchmarks were chosen because they are suitable benchmarks for polyhedral analysis.  Table \ref{table:bgq_config} shows the hardware details of a BlueGene/Q chip. \\
+Experimentation is performed on two different set of benchmarks - SPEC2006 benchmarks~\cite{spec}  and the PolyBench/C benchmarks~\cite{polybench}.  SPEC2006 is chosen because it has been used by other researchers for the evaluation of speculative execution. All the SPEC2006 benchmarks are not reported because some of them don't run successfully on BlueGene/Q.  PolyBench/C benchmarks are chosen because they are suitable benchmarks for polyhedral analysis.  Table \ref{table:bgq_config} shows the hardware details of a BlueGene/Q chip. \\
  
-The SPEC2006 benchmarks were run with the \textit{ref} input and the PolyBench/C benchmarks were run using their default inputs.  For calculating the speedups, each benchmark was run 10 times for a given input and the average running time from the 10 runs were taken. Also the 95\% confidence interval is shown in the bar chart for the 10 runs.\\
+The SPEC2006 benchmarks are run with the \textit{ref, train and test} input and the PolyBench/C benchmarks are run using varied problem size.  For calculating the speedups, each benchmark is run 10 times for a given input and the average running time from the 10 runs were taken. Also the 95\% confidence interval is shown in the bar chart for the 10 runs.\\
 
 Instrumentation in the source code is done automatically following the information file generated by the framework.  The \textit{\#pragma speculative for} pragma from the IBM \textit{bgxlc\_r} compiler was used for speculative execution of loops.  This pragma divides the iterations of a loop into chunks of size
 $ceiling(number\_of\_iterations/number\_of\_threads)$. \\
 
 The loop must be countable at compile time to be a speculation candidate.  Each thread is assigned a separate chunk.\\
 
-The baseline for comparison is the sequential version of the benchmarks compiled with the -O0 optimization level of the \textit{bgxlc\_r} compiler.  The lowest optimization level ensures that the optimization of hot loops (-qhot) and automatic SIMDization of the sequential code (-qsimd=auto) is turned off. For comparison with the OpenMP version, the automatic OpenMP code generated by \textit{Polly} for the benchmarks was used.  Polly inserts calls to OpenMP runtime functions to automatically parallelize independent SCoPs. Still the automatic OpenMP version generated by Polly can be worse than the OpenMP version of the code written by the programmer.
+The baseline for comparison is the sequential version of the benchmarks compiled with the -O0 optimization level of the \textit{bgxlc\_r} compiler.  The lowest optimization level ensures that the optimization of hot loops (-qhot) and automatic SIMDization of the sequential code (-qsimd=auto) is turned off. For comparison with the OpenMP version, the automatic OpenMP code generated by \textit{Polly} for the benchmarks is used.  Polly inserts calls to OpenMP runtime functions to automatically parallelize independent SCoPs. Still the automatic OpenMP version generated by Polly can be worse than the OpenMP version of the code written by the programmer.
 
 
 \begin{table*}
@@ -794,7 +837,7 @@ Chip-to-chip networking & 5D Torus topology + external link \\ \hline
 \section{Results}
 \label{section:results}
 
-This section describes the experimental results for the initial experimentation.  First the effect of heuristic 1 on the SPEC2006 and the PolyBench/C benchmarks is described.  Then a comparison is made between OpenMP parallelization and the parallelization done by the framework following heuristic 1.  After that the effect of heuristic 2 is shown.  Effect of different alias analysis on the polyhedral dependence analysis and the scalability of the SE parallelization are also shown.
+This section describes the experimental results for the initial experimentation.  First the effect of heuristic 1 on the SPEC2006 and the PolyBench/C benchmarks is described.  Then a comparison is made between OpenMP parallelization and the parallelization done by the framework following heuristic 1.  After that the effect of heuristic 2 is shown.  The scalability of the TLS parallelization is also shown.
 
 \subsection{Heuristic 1}
 
@@ -808,8 +851,7 @@ This section describes the experimental results for the initial experimentation.
 \label{fig:speedup_spec2006}
 \end{figure*}
 
-In Figure~\ref{fig:speedup_spec2006}, most of the SPEC2006 benchmarks achieve a speedup over the optimized sequential version.  \textit{lbm} contains loops with no inter-thread data
-dependences, but these dependences are not statically provable by the compiler and that's why they are not parallelized by OpenMP. This benchmark can be greatly benefited by the speculative execution and obtains the highest speedup because these dependence don't materialize at run time.\\
+In Figure~\ref{fig:speedup_spec2006}, most of the SPEC2006 benchmarks achieve a speedup over the optimized sequential version.  \textit{lbm} contains loops with no inter-thread data dependences, but these dependences are not statically provable by the compiler and that's why they are not parallelized by OpenMP. This benchmark can be greatly benefited by the speculative execution and obtains the highest speedup because these dependence don't materialize at run time.\\
 
 \textit{gobmk} has many loops with small iteration counts. Small loops are not good candidates for speculative execution because the thread creation overhead negates the impact of parallel execution and we get a slowdown. These loops are later filtered out by heuristic 2.\\
 
@@ -832,7 +874,7 @@ The speedups reported in Figure~\ref{fig:speedup_polybench} indicate that the  P
 
 \subsection{Comparison with OpenMP Parallelization}
 
-Heuristic 1 relaxes the constraint of OpenMP parallelization and allows loops with \textit{may dependences} and no \textit{must dependences} to speculatively run in parallel too.  As seen in Table ~\ref{table:openmp_vs_spec_poly}, heuristic 1 was able to find more parallelization candidates than OpenMP parallelization for the PolyBench/C benchmarks.  Figure~\ref{fig:openmp_vs_spec_poly} shows the speedup gained from OpenMP parallelization and speculative parallelization for the PolyBench/C benchmarks.  For \textit{2mm} and \textit{3mm}, speculative optimization does not give better speedup because no new loops are discovered by the framework.  For the last five benchmarks, OpenMP performs better than speculative optimization because the loops parallelized by heuristic 1 in the benchmarks are pretty small and they take very small portion of the benchmark execution time.  Therefore executing them speculatively causes the overhead from SE to negate the gain from parallel execution.  The slowdown in these benchmarks were the motivation for heuristic 2.\\
+Heuristic 1 relaxes the constraint of OpenMP parallelization and allows loops with \textit{may dependences} and no \textit{must dependences} to speculatively run in parallel too.  As seen in Table ~\ref{table:openmp_vs_spec_poly}, heuristic 1 is able to find more parallelization candidates than OpenMP parallelization for the PolyBench/C benchmarks.  Figure~\ref{fig:openmp_vs_spec_poly} shows the speedup gained from OpenMP parallelization and speculative parallelization for the PolyBench/C benchmarks.  For \textit{2mm} and \textit{3mm}, speculative optimization does not give better speedup because no new loops are discovered by the framework.  For the last five benchmarks, OpenMP performs better than speculative optimization because the loops parallelized by heuristic 1 in the benchmarks are pretty small and they take very small portion of the benchmark execution time.  Therefore executing them speculatively causes the overhead from TLS to negate the gain from parallel execution.  The slowdown in these benchmarks are the motivation for heuristic 2.\\
 
 Most of the time the framework outperforms OpenMP for the SPEC2006 benchmarks, as can be seen in Figure~\ref{fig:openmp_vs_spec}.
 
@@ -883,9 +925,9 @@ fdtd\_2d & 14 & 2 & 0 & - \\ \hline
 
 \subsubsection{Profiling and Filtering hot loops}
 
-To tackle the slowdowns, the reported \textit{may dependences} were profiled to see whether the dependences occur at run time. Also the loops that does not take significant amount of the program execution time were not speculatively parallelized because they negate the gain of parallelization due to thread creation overhead. \\
+To tackle the slowdowns, the reported \textit{may dependences} are profiled to see whether the dependences occur at run time. Also the loops that does not take significant amount of the program execution time were not speculatively parallelized because they negate the gain of parallelization due to thread creation overhead. \\
 
-The results shown in Figure~\ref{fig:heu2} indicate that the benchmarks that were experiencing slowdown as compared to OpenMP performs equal or better  when heuristic 2 is used..  \textit{Gramschmidt} and \textit{sjeng} performs better than OpenMP as the framework was able to discover more parallel loops than OpenMP via profiling than static dependence analysis.  This indicates that by extending heuristic 1, equal or better performance can be achieved as compared to OpenMP.
+The results shown in Figure~\ref{fig:heu2} indicate that the benchmarks that were experiencing slowdown as compared to OpenMP performs equal or better  when heuristic 2 is used. \textit{Gramschmidt} and \textit{sjeng} performs better than OpenMP as the overhead from parallelizing small loops goes away.  This indicates that by extending heuristic 1, equal or better performance can be achieved as compared to OpenMP.
 
 \begin{figure}
 \centering
@@ -894,55 +936,13 @@ The results shown in Figure~\ref{fig:heu2} indicate that the benchmarks that wer
 \label{fig:heu2}
 \end{figure}
 
-\section{Variability of Loops' Dependence Behaviour based on Inputs}
-
-One important finding of this research is that the dependence behaviour of loops that are has the properties to be speculation candidates, \textit{doesn't change} with respect to the inputs to the program.  The dependence behaviour of loops from the benchmarks that were used in TLS research before (and are available) were observed  for different inputs and \textit{there was not a single loop that had the specific properties for being a TLS candidate and whose dependence behaviour varies with different inputs}.  This finding allows to use a simple heuristic for selection of speculation candidates based on profiling.  If the loop is dependent, the loop is not speculated.  But if the loops is found to be independent, it is speculatively parallelized.  Still more speculation candidates were discovered using this heuristic because all of these candidate loops had \textit{may dependences} which prevents the compiler from parallelizing them.  Also the coverage of loops has to be greater than 20 \% for making it a speculation candidate.  This threshold was chosen from the result of the previous experiments with \textit{polly}. Table~\ref{table:benchmarks_observed} gives the list of benchmarks that were observed.\\
-
-\begin{table}
-\centering
-\caption{The Benchmarks observed to find loops with varied dependence behaviour }
-\begin{tabular}{|c|c||c|c|} \hline
-Benchmark Suite & Benchmark Name & Benchmark Suite & Benchmark Name \\ \hline 
-Spec2006 & lbm & Spec2006 & h264ref \\ \hline
-Spec2006 & hmmer & Spec2006 & mcf \\ \hline
-Spec2006 & sjeng & Spec2006 & sphinx3  \\ \hline
-Spec2006 & bzip2   & Spec2006 & gobmk  \\ \hline
-Spec2006 & milc  & Spec2006 & namd   \\ \hline
-PolyBench/C & 2mm	 &PolyBench/C & 3mm \\ \hline
-PolyBench/C & gemm& PolyBench/C & gramschmidt\\ \hline
-PolyBench/C & jacobi &PolyBench/C & lu	 \\ \hline
-PolyBench/C & seidel &PolyBench/C & cholesky \\ \hline
-PolyBench/C & dynprog &PolyBench/C & fdtd\_2d  \\ \hline
-BioBench & mummer  &BioBench & protdist  \\ \hline
-BioBench & protpar  &BioBench & dnapars  \\ \hline
-BioBench & dnamove  &BioBench & dnapenny  \\ \hline
-BioBench & dnacomp  &BioBench & dnainvar  \\ \hline
-BioBench & dnaml  &BioBench & dnaml2  \\ \hline
-BioBench & dnamlk  &BioBench & dnamlk2  \\ \hline
-BioBench & dnadist  &BioBench & dollop  \\ \hline
-BioBench & dolmove  &BioBench & dolpenny  \\ \hline
-BioBench & restml  &BioBench & restml2  \\ \hline
-BioBench & seqboot  &BioBench & fitch  \\ \hline
-BioBench & kitsch  &BioBench & neighbor  \\ \hline
-BioBench & gendist &BioBench & tigr  \\ \hline
-BioBench & clustalw &BioBench & hmmer  \\ \hline
-NAS & BT & NAS & CG  \\ \hline
-NAS & DC & NAS & EP  \\ \hline
-NAS & FT & NAS & IS  \\ \hline
-NAS & LU & NAS & MG  \\ \hline
-NAS & SP & NAS & UA  \\ \hline
-\hline\end{tabular}
-\label{table:benchmarks_observed}
-\end{table}
-
-
 \section{Going Further: Using LLVM's New Dependence Analysis and Comparison with AutoSIMD and AutoOpenMP by the xlc compiler}
 
-For the next set of experiments, the effect of higher optimization levels of the \textit{bgxlc\_r} compiler was observed.  The optimization level used was -O5.  By default -O5 level turns on the automatic vectorization (SIMDization) and the optimization of hot loops (e.g. loop unrolling).  \\
+For the next set of experiments, the effect of higher optimization levels of the \textit{bgxlc\_r} compiler is observed.  The optimization level used in both the sequential and parallel version is -O5.  By default -O5 level turns on the automatic vectorization (SIMDization) and the various optimizations of hot loops (e.g. loop unrolling etc.).  \\
 
-Also as LLVM's dependence analysis pass was improved, the result from the dependence analysis pass was used for profiling.  The SPEC2006 and PolyBench/C benchmarks are used for experimentation.
+Also as LLVM's dependence analysis pass has been improved by the time these experiments are performed, the result from the dependence analysis pass is used for profiling.  The SPEC2006 and PolyBench/C benchmarks are used for experimentation.
 
-The baseline for comparison for these set of experiments was the sequential version of the code optimized at the highest level and the automatic vectorization and optimization of hot loops turned off.  Comparison was made with three parallel versions of the code.  The automatic SIMDized code, the automatic OpenMP parallelized code and the speculative parallel code generated by the framework.  The follwoing compiler options were used to generate the sequential and the three parallel versions of the code. \\
+The baseline for comparison for these set of experiments is the sequential version of the code optimized at the highest level (-O5) with the automatic vectorization and optimization of hot loops turned off.  Comparison is made with three parallel versions of the code.  The automatic SIMDized code, the automatic OpenMP parallelized code and the speculative parallel code generated by the framework.  The following compiler options are used to generate the sequential and the three parallel versions of the code. \\
 
 \begin{itemize}
 \item \textbf{Optimized Sequential version:} bgxlc -O5 -qsimd=noauto -qnohot -qstrict 
@@ -954,49 +954,51 @@ The baseline for comparison for these set of experiments was the sequential vers
 The \-qstrict compiler option is used to maintain the correct semantics of the program after higher level optimizations.  Because, the higher level optimizations may alter the semantics of the program. \\
 
 \subsubsection{SPEC2006}
-Figure~\ref{fig:speedup_O5} gives the speedup obtained from different parallelization of the SPEC2006 benchmarks with the optimized sequential version as baseline. As seen in the figure, the performance improvement of speculative parallelization over the sequential version optimized at the highest level (-O5) is much less than what was achieved over the sequential version with no optimization (-O0). \\
+Figure~\ref{fig:speedup_O5} gives the speedup obtained from different parallelization of the SPEC2006 benchmarks with the optimized sequential version as baseline. The performance improvement of speculative parallelization over the sequential version optimized at the highest level (-O5) is much less than what was achieved over the sequential version with no optimization (-O0). \\
 
-As seen in the figure, \textit{milc} and \textit{namd} shows similar trends with the three types of parallelization.  The SIMDized version performs better than the optimized sequential version, OMP and speculative execution keep performing better as they are applied to the code.  For \textit{hmmer} and \textit{mcf}, the SIMDization does not improve the performance but still these two benchmarks get some performance improvement while OMP and speculative parallelization is applied. \textit{sphinx3} does not get any improvement for SIMDization, but OpenMP helps here though speculative parallelization does not.  For \textit{bzip2}, OpenMP does not help over SIMD, but speculative parallelization helps.  \textit{gobmk} is a benchmark which does not experience an improvement for any of these parallelization techniques in BG/Q. \textit{h264ref} and \textit{sjeng} are two benchmarks where OMP helps but speculative execution negates the performance improvement by OpenMP and results in a slowdown.
+As seen in the figure, \textit{milc} and \textit{namd} shows similar trends with the three types of parallelization.  The SIMDized version performs better than the optimized sequential version, OMP and speculative execution keep performing better as they are applied to the code.  For \textit{hmmer} and \textit{mcf}, the SIMDization does not improve the performance but still these two benchmarks get some performance improvement while OMP and speculative parallelization is applied. \textit{sphinx3} does not get any improvement for SIMDization, but OpenMP helps here while speculative parallelization does not.  For \textit{bzip2}, OpenMP does not help over SIMD, but speculative parallelization helps.  \textit{gobmk} is a benchmark which does not experience an improvement for any of these parallelization techniques in BG/Q. This is because no new speculative loops are discovered due to filtering out loops with less than 20\% coverage.  \textit{h264ref} and \textit{sjeng} are two benchmarks where OMP helps but speculative execution negates the performance improvement by OpenMP and results in a slowdown.
 
 \subsubsection{PolyBench/C}
 
-Figure~\ref{fig:poly_O5} gives the effect of different parallelization techniques on the PolyBench/C benchmarks. There is not much improvement from speculative execution for most of the benchmarks other than \textit{gemm} and \textit{lu}. SIMDization and OMP parallelization improves the performance of \textit{gemm} more than 2.5 fold on 4 threads.  For \textit{lu}, the performance improvement is not much promising. \textit{2mm} and \textit{3mm} are benchmarks which performs 2D and 3D matrix multiplication and therefore, TLS is not abe to discover new candidate loops for speculation.  SIMD and OMP parallelization achieves good performance improvement already for these two benchmarks as expected. \textit{ jacobi, seidel, cholesky} and \textit{dynprog} experiences slowdown for executing loops speculatively.  The reasons for this slowdown is investigated and explained later.  But this slowdown is not from the execution of colder loops as was seen on the previous experiments with \textit{polly}.  Because the cold loops are already eliminated to find speculation candidates for these set of experiments.  \textit{fdtd-2d} and \textit{gramschimidt} are two benchmarks that do not benefit from any of the three parallelization techniques.
+Figure~\ref{fig:poly_O5} gives the effect of different parallelization techniques on the PolyBench/C benchmarks. There is not much improvement from speculative execution for most of the benchmarks other than \textit{gemm} and \textit{lu}. SIMDization and OMP parallelization improves the performance of \textit{gemm} more than 2.5 fold on 4 threads.  For \textit{lu}, the performance improvement is not much promising. \textit{2mm} and \textit{3mm} are benchmarks which performs 2D and 3D matrix multiplication and therefore, TLS is not able to discover new candidate loops for speculation.  SIMD and OMP parallelization achieves good performance improvement already for these two benchmarks as expected. \textit{ jacobi, seidel, cholesky} and \textit{dynprog} experiences slowdown for executing loops speculatively.  The reasons for this slowdown is investigated and explained later.  But this slowdown is not from the execution of colder loops as was seen on the previous experiments with \textit{polly}.  Because the cold loops are already eliminated..  \textit{fdtd-2d} and \textit{gramschimidt} are two benchmarks that do not benefit from any of the three parallelization techniques.
 
 \subsubsection{Investigation of Performance Improvement or Degradation}
 
-The following sets of experiments were performed to investigate the reason of performance improvement or degradation due to different parallelization techniques for the SPEC2006 and PolyBench/C benchmarks.  First the number of loops parallelized and their coverage were calculated.  Next, the misspeculation overhead of the speculatively parallelized versions were investigated to find the reasons of slowdown.  After that, the L1 cache miss rate of the sequential and different parallel versions of the code were calculated.  Also the instruction path length increase of the parallel versions of the code with respect to the sequential version was calculated.
+The following sets of experiments were performed to investigate the reason of performance improvement or degradation due to different parallelization techniques for the SPEC2006 and PolyBench/C benchmarks.  First the number of loops parallelized and their coverage are calculated.  Next, the misspeculation overhead of the speculatively parallelized versions are investigated to find the reasons of slowdown.  After that, the L1 cache miss rate of the sequential and different parallel versions of the code are calculated using Hardware Performance Monitors (HPM).  Also the instruction path length increase of the parallel versions of the code with respect to the sequential version is calculated.
 
 \subsubsection{Number of loops parallelized and their coverage}
 
-Table~\ref{table:coverage_2} gives the number of parallelized loops by the three different parallelization techniques and their coverage for the SPEC2006 and PolyBench/C benchmarks.  It is clear from the numbers that more number of loops are parallelized for the OMP and speculative parallelization of all these benchmarks than the initial experimentation with \textit{polly}.  The coverage of the parallelized loops are more than 20 percent of the whole program execution time.  The reason foe the more number of loops parallelized is - \textit{polly} was only reporting loops that are SCoPs.  SCoPs have some specific properties that was preventing some loops from consideration.  But in the later experiments, the dependence analysis result from LLVM was taken for profiling.  Therefore, the number of loops profiled increased which in turn increased the number of loops reported to be beneficial based on the selection criteria.  \\
+Table~\ref{table:coverage_2} gives the number of parallelized loops by the three different parallelization techniques and their coverage for the SPEC2006 and PolyBench/C benchmarks.  It is clear from the numbers that more number of loops are parallelized for the OMP and speculative parallelization of all these benchmarks than the initial experimentation with \textit{polly}.  The coverage of the parallelized loops are more than 20 percent of the whole program execution time.  The reason for the more number of loops parallelized than the experiments with \textit{polly} is - \textit{polly} only reports loops that are SCoPs.  For being a SCoP, the loop has to have some specific properties that prevents some loops from consideration.  But in the later experiments, the dependence analysis result from LLVM was taken for profiling.  Therefore, the number of loops profiled increased which in turn increased the number of loops reported to be beneficial based on the selection criteria.  \\
 
 The number of loops parallelized by the auto-openmp parallelization in the \textit{bgxlc\_r} compiler is also greater than the number of loops parallelized by \textit{polly} using the polyhedral dependence analysis because \textit{polly} is only considering SCoPs where \textit{bgxlc\_r} is taking all loops (non SCoPs as well) while performing analysis.\\
 
-There is one more relaxation than a conservative analysis for finding the speculation candidates.  Loops with function calls inside them were also considered to be speculatively parallel even if the function call is guaranteed to introduce some dependency inside the loop.  The reason is it is difficult to perform an interprocedural dependence analysis with the help of profiling.  A more conservative compiler will not consider a loop for speculation if there is a function call inside the loop body and the function is not side-effect free. \\
+There is one more relaxation than a conservative analysis for finding the speculation candidates.  Loops with function calls inside them are also considered to be speculatively parallel even if the function call is guaranteed to introduce some dependency inside the loop.  The reason for this relaxation is it is difficult to perform an inter-procedural dependence analysis with the help of profiling.  A more conservative compiler will not consider a loop for speculation if there is a function call inside the loop body and the function is not side-effect free. \\
 
-The interesting benchmark in table~\ref{table:coverage_2} is \textit{h264ref} because it has the most number of speculatively parallelized loops with good coverage than any other but still it experiences a slowdown due to speculative execution.  For \textit{milc} the number of speculative loops is better than most other benchmarks but the loops does not have a high coverage that can account for the speedup from TLS.  Also the coverage of the speculative loops in \textit{sjeng} is on the lower side which adds to the TLS thread creation overhead and contributes to its slowdown.  The number of loops speculated for \textit{lbm} is small but they take most of the execution  time.  These hot loops of \textit{lbm} are good speculation candidates and are examples of cases where TLS is beneficial.  \textit{namd} also have decent number of speculated loops with a good coverage which contributes to the speed up from TLS.  \textit{bzip2} also has a small number of loops that does not have good coverage, so the speed up achieved for this benchmark from TLS is not from coverage and the number of speculative loops. \textit{gobmk} does not have any parallelizable loops.  This explains the same performance of \textit{gobmk} parallel versions with the sequential version. \\
+The interesting benchmark in table~\ref{table:coverage_2} is \textit{h264ref} because it has the most number of speculatively parallelized loops with good coverage than any other but still it experiences a slowdown due to speculative execution.  For \textit{milc} the number of speculative loops is better than most other benchmarks but the loops does not have a high coverage that can account for the speedup from TLS.  Also the coverage of the speculative loops in \textit{sjeng} is on the lower side which adds to the TLS thread creation overhead and contributes to its slowdown.  The number of loops speculated for \textit{lbm} is small but they take most of the execution  time.  These hot loops of \textit{lbm} are good speculation candidates and are examples of cases where TLS can be beneficial.  \textit{namd} also have decent number of speculated loops with a good coverage which contributes to the speed up from TLS.  \textit{bzip2} also has a small number of loops that does not have good coverage, so the speed up achieved for this benchmark from TLS is not from coverage and the number of speculative loops. \textit{gobmk} does not have any parallelizable loops.  This explains the same performance of \textit{gobmk} parallel versions with the sequential version. \\
 
-For PolyBench/C benchmarks, \textit{2mm} and \textit{3mm}, no new speculation candidates were discovered because they are matrix multiplication benchmarks and OpenMP already does a good job parallellizing perfectly parallel loops. For \textit{gemm}, the speculatively parallel loops has a very good coverage that supports the performance improvement from TLS.  for \textit{cholesky, dynprog} and \textit{fdtd-2d} the loops paralleized have poor coverage.  This is one of the reasons for the performance degradation for these benchmarks. \textit{gramschmidt} does not have any new specuative oops discovered because of the filtering criteria of loops with less than 20\% coverage.
+For PolyBench/C benchmarks, \textit{2mm} and \textit{3mm}, no new speculation candidates were discovered because they are matrix multiplication benchmarks and OpenMP already does a good job parallellizing perfectly parallel loops. For \textit{gemm}, the speculatively parallel loops has a very good coverage that supports the performance improvement from TLS.  For \textit{cholesky}, \textit{dynprog} and \textit{fdtd-2d} the loops paralleized have poor coverage.  This is one of the reasons that accounts for the performance degradation for these benchmarks. \textit{gramschmidt} does not have any new speculative loops discovered because of the filtering criteria of loops with less than 20\% coverage.
 
 \subsubsection{Misspeculation Overhead}
 
-To calculate the misspeculation overhead, the percentage of successfully committed threads were computed for the benchmarks.  The \textit{se\_print\_stats} function from the \textit{speculation\.h} header file was used to collect this statistics.  The \textit{se\_print\_stats} function has to be inserted before and after each speculative loops.  An environment variable can be set to different values to print the statistics after each speculative regions or print the statistics from all the speculative regions at the end of the program.  To percentage of speculative threads committed is computed as -
+To calculate the misspeculation overhead, the percentage of successfully committed threads are computed for the benchmarks.  The \textit{se\_print\_stats} function from the \textit{speculation\.h} header file is used to collect this statistics.  The \textit{se\_print\_stats} function has to be inserted before and after each speculative loops.  An environment variable can be set to different values to print the statistics after each speculative regions or print the statistics from all the speculative regions at the end of the program.  To percentage of speculative threads committed is computed as -
 \begin{equation}
  \frac{speculative }{\left ( speculative + non\_speculative \right )}\ast 100
 \end{equation}
 
-Misspeculation percentage gives the amount of wasted computation for the speculative loops.  Typically a benchmark that can be benefited from TLS should have high percentage of successful completion of speculative threads. Table~\ref{table:spec_committed} gives the percentage of speculative threads committed for the SPEC2006 and PolyBench/C benchmarks.  The best TLS performance is given by \textit{lbm}.  For the two benchmarks \textit{sjeng} and \textit{h264ref} the percentage of speculative threads committed is pretty less giving an indication of a huge amount of wasted computation which resulted in their slowdown.  Closer investigation of these benchmarks reveal that most of the loops speculatively parallelized for these benchmarks contained function calls which resulted in a dependence and thus roll back.  Though \textit{h264ref} has the most number of loops speculatively parallelized, the presence of dependence resulted from function calls inside these loops causes the slowdown for the TLS execution.\\
+Misspeculation percentage gives the amount of wasted computation for the speculative loops.  Typically a benchmark that can be benefited from TLS should have high percentage of successful completion of speculative threads. Table~\ref{table:spec_committed} gives the percentage of speculative threads committed for the SPEC2006 and PolyBench/C benchmarks.  The best TLS performance is given by \textit{lbm}.  For the two benchmarks \textit{sjeng} and \textit{h264ref} the percentage of speculative threads committed is pretty less giving an indication of a huge amount of wasted computation which resulted in their slowdown.  Closer investigation of these benchmarks reveal that most of the loops speculatively parallelized for these benchmarks contained function calls which resulted in a dependence and thus roll back.  Though \textit{h264ref} has the most number of loops speculatively parallelized, the presence of dependence resulted from function calls inside these loops causes the slowdown for the TLS execution.  Two techniques can be used here to overcome the overhead - 1. The compiler can be conservative and not allow loops with function calls inside them to be executed in parallel regardless of whether the function call changes the dependence behaviour of the loop.  But in that case, we might still miss some opportunities where the function call is harmless.  2. A more sophisticated inter-procedural dependence analysis technique which is able to tell if the function call changes the dependence behaviour of the loop.\\
 
-\textit{mcf, hmmer, milc, namd} and \textit{bzip2} do not have a high percentage of successful speculative execution as \textit{lbm}. This explains the small performance improvement over OpenMP parallelization for these benchmarks as compared to \textit{lbm}. \\
+\textit{mcf}, \textit{hmmer}, \textit{milc}, \textit{namd} and \textit{bzip2} do not have a high percentage of successful speculative execution as \textit{lbm}. This explains the small performance improvement over OpenMP parallelization for these benchmarks as compared to \textit{lbm}. \\
 
-Among the PolyBench/C benchmarks, \textit{gemm} and \textit{lu} has high percentage of speculative thread completion that explains their speedups.  For the four benchmarks - \textit{jacobi, seidel, cholesky, dynprog} there is high percentage of thread completion that does not support the slowdown of these benchmarks.  The reasons of performance degradation for these four benchmarks is investigated further.
+Among the PolyBench/C benchmarks, \textit{gemm} and \textit{lu} has high percentage of speculative thread completion that explains their speedups.  For the four benchmarks - \textit{jacobi}, \textit{seidel}, \textit{cholesky}, \textit{dynprog} there is high percentage of thread completion that does not support the slowdown of these benchmarks.  The reasons of performance degradation for these four benchmarks is investigated further.
 
 \subsubsection{L1 Cache Miss Rate}
 
 The TLS runtime works in close collaboration with the Transactional Memory (TM) runtime of BG/Q.  One of the most dominant BG/Q TM runtime overhead is caused by the loss of L1 cache support due to the L1 flush and bypass needed for the bookkeeping of speculative
-state in L2. Though the L2 and L1P buffer load latencies are 13x and 5x higher than the L1 load latency, the L1 miss rate for the sequential ans different parallel versions of the code gives an idea about the performance gain or loss for the benchmarks. Table~\ref{table:cache} gives the L1 cache misses for the sequential version and the three parallel versions of the SPEC2006 and PolyBench/C benchmarks.\\
+state in L2. Though the L2 and L1P buffer load latencies are 13x and 5x higher than the L1 load latency, the L1 miss rate for the sequential ans different parallel versions of the code gives an idea about the performance gain or loss for the benchmarks.\\
 
-For \textit{lbm}, the three parallel versions of the code results is more cache misses thus limiting the performance improvement.  But for \textit{mcf}, both OMP and speculative versions result in higher L1 hits which contributes to the performance improvement.  The speculative execution of \textit{sjeng} also results in a high L1 miss rate.  This is the effect of flushing the L1 cache before entering TLS region in the long-running mode.  Apart from the function calls inside TLS regions which introduce data dependences, the high L1 miss rate affects the performance. \\
+The Hardware Performance Monitor (HPM) library of BlueGene/Q is used to collect these statistics. Table~\ref{table:cache} gives the L1 cache misses for the sequential version and the three parallel versions of the SPEC2006 and PolyBench/C benchmarks.\\
+
+For \textit{lbm}, the three parallel versions of the code results in more cache misses thus limiting the performance improvement.  But for \textit{mcf}, both OMP and speculative versions result in higher L1 hits which contributes to the performance improvement.  The speculative execution of \textit{sjeng} also results in a high L1 miss rate.  This is the effect of flushing the L1 cache before entering TLS region in the long-running mode.  Apart from the function calls inside TLS regions which introduce data dependences, the high L1 miss rate affects the performance. \\
 
 Similar effect can be seen for the two PolyBench/C benchmarks - \textit{cholesky} and \textit{dynprog}.  Though these two benchmarks have high percentage of successful completion of speculative threads, the speculative execution of the selected loops affects the cache performance due to locality of data between threads.  The cost of bringing the data again after flushing the cache accounts for the slowdown in these benchmarks. \\
 
