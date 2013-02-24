@@ -954,11 +954,26 @@ The baseline for comparison for these set of experiments is the sequential versi
 The \-qstrict compiler option is used to maintain the correct semantics of the program after higher level optimizations.  Because, the higher level optimizations may alter the semantics of the program. \\
 
 \subsubsection{SPEC2006}
+
+\begin{figure}[h]
+\centering
+\includegraphics[scale=0.56]{./pdf/spec2006_O5.pdf}
+\caption{Comparison of Speedups gained from different parallelization techniques as compared to the sequential version of the code optimized at the highest level for SPEC2006 Benchmarks }
+\label{fig:speedup_O5}
+\end{figure}
+
 Figure~\ref{fig:speedup_O5} gives the speedup obtained from different parallelization of the SPEC2006 benchmarks with the optimized sequential version as baseline. The performance improvement of speculative parallelization over the sequential version optimized at the highest level (-O5) is much less than what was achieved over the sequential version with no optimization (-O0). \\
 
 As seen in the figure, \textit{milc} and \textit{namd} shows similar trends with the three types of parallelization.  The SIMDized version performs better than the optimized sequential version, OMP and speculative execution keep performing better as they are applied to the code.  For \textit{hmmer} and \textit{mcf}, the SIMDization does not improve the performance but still these two benchmarks get some performance improvement while OMP and speculative parallelization is applied. \textit{sphinx3} does not get any improvement for SIMDization, but OpenMP helps here while speculative parallelization does not.  For \textit{bzip2}, OpenMP does not help over SIMD, but speculative parallelization helps.  \textit{gobmk} is a benchmark which does not experience an improvement for any of these parallelization techniques in BG/Q. This is because no new speculative loops are discovered due to filtering out loops with less than 20\% coverage.  \textit{h264ref} and \textit{sjeng} are two benchmarks where OMP helps but speculative execution negates the performance improvement by OpenMP and results in a slowdown.
 
 \subsubsection{PolyBench/C}
+
+\begin{figure}[h]
+\centering
+\includegraphics[scale=0.56]{./pdf/poly_O5.pdf}
+\caption{Comparison of Speedups gained from different parallelization techniques as compared to the sequential version of the code optimized at the highest level for PolyBench/C Benchmarks}
+\label{fig:poly_O5}
+\end{figure}
 
 Figure~\ref{fig:poly_O5} gives the effect of different parallelization techniques on the PolyBench/C benchmarks. There is not much improvement from speculative execution for most of the benchmarks other than \textit{gemm} and \textit{lu}. SIMDization and OMP parallelization improves the performance of \textit{gemm} more than 2.5 fold on 4 threads.  For \textit{lu}, the performance improvement is not much promising. \textit{2mm} and \textit{3mm} are benchmarks which performs 2D and 3D matrix multiplication and therefore, TLS is not able to discover new candidate loops for speculation.  SIMD and OMP parallelization achieves good performance improvement already for these two benchmarks as expected. \textit{ jacobi, seidel, cholesky} and \textit{dynprog} experiences slowdown for executing loops speculatively.  The reasons for this slowdown is investigated and explained later.  But this slowdown is not from the execution of colder loops as was seen on the previous experiments with \textit{polly}.  Because the cold loops are already eliminated..  \textit{fdtd-2d} and \textit{gramschimidt} are two benchmarks that do not benefit from any of the three parallelization techniques.
 
@@ -968,65 +983,7 @@ The following sets of experiments were performed to investigate the reason of pe
 
 \subsubsection{Number of loops parallelized and their coverage}
 
-Table~\ref{table:coverage_2} gives the number of parallelized loops by the three different parallelization techniques and their coverage for the SPEC2006 and PolyBench/C benchmarks.  It is clear from the numbers that more number of loops are parallelized for the OMP and speculative parallelization of all these benchmarks than the initial experimentation with \textit{polly}.  The coverage of the parallelized loops are more than 20 percent of the whole program execution time.  The reason for the more number of loops parallelized than the experiments with \textit{polly} is - \textit{polly} only reports loops that are SCoPs.  For being a SCoP, the loop has to have some specific properties that prevents some loops from consideration.  But in the later experiments, the dependence analysis result from LLVM was taken for profiling.  Therefore, the number of loops profiled increased which in turn increased the number of loops reported to be beneficial based on the selection criteria.  \\
-
-The number of loops parallelized by the auto-openmp parallelization in the \textit{bgxlc\_r} compiler is also greater than the number of loops parallelized by \textit{polly} using the polyhedral dependence analysis because \textit{polly} is only considering SCoPs where \textit{bgxlc\_r} is taking all loops (non SCoPs as well) while performing analysis.\\
-
-There is one more relaxation than a conservative analysis for finding the speculation candidates.  Loops with function calls inside them are also considered to be speculatively parallel even if the function call is guaranteed to introduce some dependency inside the loop.  The reason for this relaxation is it is difficult to perform an inter-procedural dependence analysis with the help of profiling.  A more conservative compiler will not consider a loop for speculation if there is a function call inside the loop body and the function is not side-effect free. \\
-
-The interesting benchmark in table~\ref{table:coverage_2} is \textit{h264ref} because it has the most number of speculatively parallelized loops with good coverage than any other but still it experiences a slowdown due to speculative execution.  For \textit{milc} the number of speculative loops is better than most other benchmarks but the loops does not have a high coverage that can account for the speedup from TLS.  Also the coverage of the speculative loops in \textit{sjeng} is on the lower side which adds to the TLS thread creation overhead and contributes to its slowdown.  The number of loops speculated for \textit{lbm} is small but they take most of the execution  time.  These hot loops of \textit{lbm} are good speculation candidates and are examples of cases where TLS can be beneficial.  \textit{namd} also have decent number of speculated loops with a good coverage which contributes to the speed up from TLS.  \textit{bzip2} also has a small number of loops that does not have good coverage, so the speed up achieved for this benchmark from TLS is not from coverage and the number of speculative loops. \textit{gobmk} does not have any parallelizable loops.  This explains the same performance of \textit{gobmk} parallel versions with the sequential version. \\
-
-For PolyBench/C benchmarks, \textit{2mm} and \textit{3mm}, no new speculation candidates were discovered because they are matrix multiplication benchmarks and OpenMP already does a good job parallellizing perfectly parallel loops. For \textit{gemm}, the speculatively parallel loops has a very good coverage that supports the performance improvement from TLS.  For \textit{cholesky}, \textit{dynprog} and \textit{fdtd-2d} the loops paralleized have poor coverage.  This is one of the reasons that accounts for the performance degradation for these benchmarks. \textit{gramschmidt} does not have any new speculative loops discovered because of the filtering criteria of loops with less than 20\% coverage.
-
-\subsubsection{Misspeculation Overhead}
-
-To calculate the misspeculation overhead, the percentage of successfully committed threads are computed for the benchmarks.  The \textit{se\_print\_stats} function from the \textit{speculation\.h} header file is used to collect this statistics.  The \textit{se\_print\_stats} function has to be inserted before and after each speculative loops.  An environment variable can be set to different values to print the statistics after each speculative regions or print the statistics from all the speculative regions at the end of the program.  To percentage of speculative threads committed is computed as -
-\begin{equation}
- \frac{speculative }{\left ( speculative + non\_speculative \right )}\ast 100
-\end{equation}
-
-Misspeculation percentage gives the amount of wasted computation for the speculative loops.  Typically a benchmark that can be benefited from TLS should have high percentage of successful completion of speculative threads. Table~\ref{table:spec_committed} gives the percentage of speculative threads committed for the SPEC2006 and PolyBench/C benchmarks.  The best TLS performance is given by \textit{lbm}.  For the two benchmarks \textit{sjeng} and \textit{h264ref} the percentage of speculative threads committed is pretty less giving an indication of a huge amount of wasted computation which resulted in their slowdown.  Closer investigation of these benchmarks reveal that most of the loops speculatively parallelized for these benchmarks contained function calls which resulted in a dependence and thus roll back.  Though \textit{h264ref} has the most number of loops speculatively parallelized, the presence of dependence resulted from function calls inside these loops causes the slowdown for the TLS execution.  Two techniques can be used here to overcome the overhead - 1. The compiler can be conservative and not allow loops with function calls inside them to be executed in parallel regardless of whether the function call changes the dependence behaviour of the loop.  But in that case, we might still miss some opportunities where the function call is harmless.  2. A more sophisticated inter-procedural dependence analysis technique which is able to tell if the function call changes the dependence behaviour of the loop.\\
-
-\textit{mcf}, \textit{hmmer}, \textit{milc}, \textit{namd} and \textit{bzip2} do not have a high percentage of successful speculative execution as \textit{lbm}. This explains the small performance improvement over OpenMP parallelization for these benchmarks as compared to \textit{lbm}. \\
-
-Among the PolyBench/C benchmarks, \textit{gemm} and \textit{lu} has high percentage of speculative thread completion that explains their speedups.  For the four benchmarks - \textit{jacobi}, \textit{seidel}, \textit{cholesky}, \textit{dynprog} there is high percentage of thread completion that does not support the slowdown of these benchmarks.  The reasons of performance degradation for these four benchmarks is investigated further.
-
-\subsubsection{L1 Cache Miss Rate}
-
-The TLS runtime works in close collaboration with the Transactional Memory (TM) runtime of BG/Q.  One of the most dominant BG/Q TM runtime overhead is caused by the loss of L1 cache support due to the L1 flush and bypass needed for the bookkeeping of speculative
-state in L2. Though the L2 and L1P buffer load latencies are 13x and 5x higher than the L1 load latency, the L1 miss rate for the sequential ans different parallel versions of the code gives an idea about the performance gain or loss for the benchmarks.\\
-
-The Hardware Performance Monitor (HPM) library of BlueGene/Q is used to collect these statistics. Table~\ref{table:cache} gives the L1 cache misses for the sequential version and the three parallel versions of the SPEC2006 and PolyBench/C benchmarks.\\
-
-For \textit{lbm}, the three parallel versions of the code results in more cache misses thus limiting the performance improvement.  But for \textit{mcf}, both OMP and speculative versions result in higher L1 hits which contributes to the performance improvement.  The speculative execution of \textit{sjeng} also results in a high L1 miss rate.  This is the effect of flushing the L1 cache before entering TLS region in the long-running mode.  Apart from the function calls inside TLS regions which introduce data dependences, the high L1 miss rate affects the performance. \\
-
-Similar effect can be seen for the two PolyBench/C benchmarks - \textit{cholesky} and \textit{dynprog}.  Though these two benchmarks have high percentage of successful completion of speculative threads, the speculative execution of the selected loops affects the cache performance due to locality of data between threads.  The cost of bringing the data again after flushing the cache accounts for the slowdown in these benchmarks. \\
-
-For \textit{jacobi} and \textit{seidel} benchmarks, though the speculative execution of the loops result in better cache utilization, the benchmarks experiences a slowdown.  The reason for this slowdown is investigated further.  The two benchmarks \textit{fdtd-2d} and \textit{gobmk} does not show any change in cache utilization for the three parallelization techniques.
-
-\subsubsection{Instruction Path length increase}
-
-AutoOpenMP and speculative parallelization inserts call to OpenMP and TLS runtime functions respectively before and after speculative loops.  Also code needs to be inserted for saving the register values for speculative execution so that the system can be rolled back to a previous state in case of a roll back.  Code growth may also occur for SIMD parallelized version of the code due to insertion of new instructions and also for applying different loop optimizations (e.g loop unrolling) performed with the -qhot option.  The effect of the three parallelization techniques on code growth was observed and the results are given in table~\ref{table:instruction_path}. \\
-
-As seen in the table, the code growth for PolyBench/C benchmarks is larger than the SPEC2006 benchmarks.  The code growth happens because the loops constitute large part of the PolyBench/C benchmarks and applying optimizations to the effects the code size the most.  For SPEC2006 benchmarks the code growth is pretty small, the highest being for the speculative parallelization of the \textit{h264ref} benchmark because the highest number of loops were speculatively parallelized for this benchmark. \\
-
-\textit{jacobi} and \textit{seidel} from the PolyBench/C suite experiences a massive code growth which explains the reason for their slowdown.  The code growth happens for two reasons - 1. The loops parallelized constitutes the maximum code portion of the benchmark. 2. The memory footprint of the loops speculatively parallelized are large so the register manipulation for speculative execution for the loops adds lots of instructions to the two benchmarks.
-
-\begin{figure}
-\centering
-\includegraphics[scale=0.56]{./pdf/spec2006_O5.pdf}
-\caption{Comparison of Speedups gained from different parallelization techniques as compared to the sequential version of the code optimized at the highest level }
-\label{fig:speedup_O5}
-\end{figure}
-
-\begin{figure}
-\centering
-\includegraphics[scale=0.56]{./pdf/poly_O5.pdf}
-\caption{Comparison of Speedups gained from different parallelization techniques as compared to the sequential version of the code optimized at the highest level }
-\label{fig:poly_O5}
-\end{figure}
-
-\begin{table}
+\begin{table}[h]
 \centering
 \caption{Number of Loops parallelized by different parallel versions of the benchmarks}
 \begin{tabular}{|c||c|c|c|c|c|} \hline
@@ -1055,7 +1012,24 @@ fdtd\_2d & 14 & 3 & 0 & 0 & 21 \\ \hline
 \label{table:coverage_2}
 \end{table}
 
-\begin{table}
+Table~\ref{table:coverage_2} gives the number of parallelized loops by the three different parallelization techniques and their coverage for the SPEC2006 and PolyBench/C benchmarks.  It is clear from the numbers that more number of loops are parallelized for the OMP and speculative parallelization of all these benchmarks than the initial experimentation with \textit{polly}.  The coverage of the parallelized loops are more than 20 percent of the whole program execution time.  The reason for the more number of loops parallelized than the experiments with \textit{polly} is - \textit{polly} only reports loops that are SCoPs.  For being a SCoP, the loop has to have some specific properties that prevents some loops from consideration.  But in the later experiments, the dependence analysis result from LLVM was taken for profiling.  Therefore, the number of loops profiled increased which in turn increased the number of loops reported to be beneficial based on the selection criteria.  \\
+
+The number of loops parallelized by the auto-openmp parallelization in the \textit{bgxlc\_r} compiler is also greater than the number of loops parallelized by \textit{polly} using the polyhedral dependence analysis because \textit{polly} is only considering SCoPs where \textit{bgxlc\_r} is taking all loops (non SCoPs as well) while performing analysis.\\
+
+There is one more relaxation than a conservative analysis for finding the speculation candidates.  Loops with function calls inside them are also considered to be speculatively parallel even if the function call is guaranteed to introduce some dependency inside the loop.  The reason for this relaxation is it is difficult to perform an inter-procedural dependence analysis with the help of profiling.  A more conservative compiler will not consider a loop for speculation if there is a function call inside the loop body and the function is not side-effect free. \\
+
+The interesting benchmark in table~\ref{table:coverage_2} is \textit{h264ref} because it has the most number of speculatively parallelized loops with good coverage than any other but still it experiences a slowdown due to speculative execution.  For \textit{milc} the number of speculative loops is better than most other benchmarks but the loops does not have a high coverage that can account for the speedup from TLS.  Also the coverage of the speculative loops in \textit{sjeng} is on the lower side which adds to the TLS thread creation overhead and contributes to its slowdown.  The number of loops speculated for \textit{lbm} is small but they take most of the execution  time.  These hot loops of \textit{lbm} are good speculation candidates and are examples of cases where TLS can be beneficial.  \textit{namd} also have decent number of speculated loops with a good coverage which contributes to the speed up from TLS.  \textit{bzip2} also has a small number of loops that does not have good coverage, so the speed up achieved for this benchmark from TLS is not from coverage and the number of speculative loops. \textit{gobmk} does not have any parallelizable loops.  This explains the same performance of \textit{gobmk} parallel versions with the sequential version. \\
+
+For PolyBench/C benchmarks, \textit{2mm} and \textit{3mm}, no new speculation candidates were discovered because they are matrix multiplication benchmarks and OpenMP already does a good job parallellizing perfectly parallel loops. For \textit{gemm}, the speculatively parallel loops has a very good coverage that supports the performance improvement from TLS.  For \textit{cholesky}, \textit{dynprog} and \textit{fdtd-2d} the loops paralleized have poor coverage.  This is one of the reasons that accounts for the performance degradation for these benchmarks. \textit{gramschmidt} does not have any new speculative loops discovered because of the filtering criteria of loops with less than 20\% coverage.
+
+\subsubsection{Misspeculation Overhead}
+
+To calculate the misspeculation overhead, the percentage of successfully committed threads are computed for the benchmarks.  The \textit{se\_print\_stats} function from the \textit{speculation\.h} header file is used to collect this statistics.  The \textit{se\_print\_stats} function has to be inserted before and after each speculative loops.  An environment variable can be set to different values to print the statistics after each speculative regions or print the statistics from all the speculative regions at the end of the program.  To percentage of speculative threads committed is computed as -
+\begin{equation}
+ \frac{speculative }{\left ( speculative + non\_speculative \right )}\ast 100
+\end{equation}
+
+\begin{table}[h]
 \centering
 \caption{The percentage of Speculative Threads successfully committed (not rolled back) for SPEC2006 and PolyBench/C Benchmarks.  It gives the amount of wastage computation. Data is omitted for the benchmarks that has no discovered speculative loop }
 \begin{tabular}{|c||c|} \hline
@@ -1065,7 +1039,7 @@ h264ref & 12  \\ \hline
 hmmer &	79	  \\ \hline
 mcf & 88 \\ \hline
 sjeng &	8 \\ \hline
-sphinx3 & -  \\ \hline
+sphinx3 & 29  \\ \hline
 bzip2 & 78  \\ \hline
 gobmk & -  \\ \hline
 milc & 79  \\ \hline
@@ -1079,12 +1053,25 @@ lu	& 89 \\ \hline
 seidel&	70 \\ \hline
 cholesky & 79 \\ \hline
 dynprog & 82 \\ \hline
-fdtd\_2d & - \\ \hline
+fdtd\_2d & 68 \\ \hline
 \hline\end{tabular}
 \label{table:spec_committed}
 \end{table}
 
-\begin{table}
+Misspeculation percentage gives the amount of wasted computation for the speculative loops.  Typically a benchmark that can be benefited from TLS should have high percentage of successful completion of speculative threads. Table~\ref{table:spec_committed} gives the percentage of speculative threads committed for the SPEC2006 and PolyBench/C benchmarks.  The best TLS performance is given by \textit{lbm}.  For the two benchmarks \textit{sjeng} and \textit{h264ref} the percentage of speculative threads committed is pretty less giving an indication of a huge amount of wasted computation which resulted in their slowdown.  Closer investigation of these benchmarks reveal that most of the loops speculatively parallelized for these benchmarks contained function calls which resulted in a dependence and thus roll back.  Though \textit{h264ref} has the most number of loops speculatively parallelized, the presence of dependence resulted from function calls inside these loops causes the slowdown for the TLS execution.  Two techniques can be used here to overcome the overhead - 1. The compiler can be conservative and not allow loops with function calls inside them to be executed in parallel regardless of whether the function call changes the dependence behaviour of the loop.  But in that case, we might still miss some opportunities where the function call is harmless.  2. A more sophisticated inter-procedural dependence analysis technique which is able to tell if the function call changes the dependence behaviour of the loop.\\
+
+\textit{mcf}, \textit{hmmer}, \textit{milc}, \textit{namd} and \textit{bzip2} do not have a high percentage of successful speculative execution as \textit{lbm}. This explains the small performance improvement over OpenMP parallelization for these benchmarks as compared to \textit{lbm}. \\
+
+Among the PolyBench/C benchmarks, \textit{gemm} and \textit{lu} has high percentage of speculative thread completion that explains their speedups.  For the four benchmarks - \textit{jacobi}, \textit{seidel}, \textit{cholesky}, \textit{dynprog} there is high percentage of thread completion that does not support the slowdown of these benchmarks.  The reasons of performance degradation for these four benchmarks is investigated further.
+
+\subsubsection{L1 Cache Miss Rate}
+
+The TLS runtime works in close collaboration with the Transactional Memory (TM) runtime of BG/Q.  One of the most dominant BG/Q TM runtime overhead is caused by the loss of L1 cache support due to the L1 flush and bypass needed for the bookkeeping of speculative
+state in L2. Though the L2 and L1P buffer load latencies are 13x and 5x higher than the L1 load latency, the L1 miss rate for the sequential ans different parallel versions of the code gives an idea about the performance gain or loss for the benchmarks.\\
+
+The Hardware Performance Monitor (HPM) library of BlueGene/Q is used to collect these statistics. Table~\ref{table:cache} gives the L1 cache misses for the sequential version and the three parallel versions of the SPEC2006 and PolyBench/C benchmarks.\\
+
+\begin{table}[h]
 \centering
 \caption{\#L1 Cache Hit Rate for SPEC2006 and PolyBench/C benchmarks}
 \begin{tabular}{|c||c|c|c|c|} \hline
@@ -1113,7 +1100,17 @@ fdtd\_2d & 98 & 98 & 98 & 98 \\ \hline
 \label{table:cache}
 \end{table}
 
-\begin{table}
+For \textit{lbm}, the three parallel versions of the code results in more cache misses thus limiting the performance improvement.  But for \textit{mcf}, both OMP and speculative versions result in higher L1 hits which contributes to the performance improvement.  The speculative execution of \textit{sjeng} also results in a high L1 miss rate.  This is the effect of flushing the L1 cache before entering TLS region in the long-running mode.  Apart from the function calls inside TLS regions which introduce data dependences, the high L1 miss rate affects the performance. \\
+
+Similar effect can be seen for the two PolyBench/C benchmarks - \textit{cholesky} and \textit{dynprog}.  Though these two benchmarks have high percentage of successful completion of speculative threads, the speculative execution of the selected loops affects the cache performance due to locality of data between threads.  The cost of bringing the data again after flushing the cache accounts for the slowdown in these benchmarks. \\
+
+For \textit{jacobi} and \textit{seidel} benchmarks, though the speculative execution of the loops result in better cache utilization, the benchmarks experiences a slowdown.  The reason for this slowdown is investigated further.  The two benchmarks \textit{fdtd-2d} and \textit{gobmk} does not show any change in cache utilization for the three parallelization techniques.
+
+\subsubsection{Instruction Path length increase}
+
+AutoOpenMP and speculative parallelization inserts call to OpenMP and TLS runtime functions respectively before and after speculative loops.  Also code needs to be inserted for saving the register values for speculative execution so that the system can be rolled back to a previous state in case of a roll back.  Code growth may also occur for SIMD parallelized version of the code due to insertion of new instructions and also for applying different loop optimizations (e.g loop unrolling) performed with the -qhot option.  The effect of the three parallelization techniques on code growth was observed and the results are given in table~\ref{table:instruction_path}. \\
+
+\begin{table}[h]
 \centering
 \caption{Instruction Path Length Increase With Respect to Sequential Version for SPEC2006 and PolyBench/C benchmarks}
 \begin{tabular}{|c||c|c|c|} \hline
@@ -1125,7 +1122,7 @@ mcf  & 0 \% & 12 \% & 23 \% \\ \hline
 sjeng  & 0 \% & 0 \% & 45 \%  \\ \hline
 sphinx3  & 0 \% & 18 \% & 19 \%  \\ \hline
 bzip2 & 0 \% & 2 \% & 3 \%  \\ \hline
-gobmk  & - & - & -  \\ \hline
+gobmk  & 0 \% & 0 \% & 0 \%  \\ \hline
 milc  & 0.9 \% & 12 \% & 23 \%  \\ \hline
 namd & 1 \% & 12 \% & 25 \%  \\ \hline
 2mm	& 13 \% & 45 \% & 45 \% \\ \hline
@@ -1142,6 +1139,9 @@ fdtd\_2d  & 0 \% & 0 \% & 79 \% \\ \hline
 \label{table:instruction_path}
 \end{table}
 
+As seen in the table, the code growth for PolyBench/C benchmarks is larger than the SPEC2006 benchmarks.  The code growth happens because the loops constitute large part of the PolyBench/C benchmarks and applying optimizations to the effects the code size the most.  For SPEC2006 benchmarks the code growth is pretty small, the highest being for the speculative parallelization of the \textit{h264ref} benchmark because the highest number of loops were speculatively parallelized for this benchmark. \\
+
+\textit{jacobi} and \textit{seidel} from the PolyBench/C suite experiences a massive code growth which explains the reason for their slowdown.  The code growth happens for two reasons - 1. The loops parallelized constitutes the maximum code portion of the benchmark. 2. The memory footprint of the loops speculatively parallelized are large so the register manipulation for speculative execution for the loops adds lots of instructions to the two benchmarks.
 
 \chapter{Conclusion}
 \chapter{Related Work}
