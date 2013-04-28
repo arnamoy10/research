@@ -124,19 +124,35 @@ TODO
 %  like \chapter ect. End with the bibliography
 \chapter{Introduction}
 
-TODO
+The use of multi-core architectures are increasing every day.  With the advent of multi-threaded and multi-core architectures, it is a challenge to effectively utilize these architectures to improve performance of general-purpose or scientific applications. Automatic compiler parallelization techniques are being developed and found to be useful for many of these architectures.  However, when applied to general-purpose integer-intensive applications that have complex control flow and excessive pointer accesses, traditional parallelization techniques become quite ineffective because they must guarantee the correct execution of the program and therefore they conservatively synchronizes all potential dependences in the program parts (mainly loops).  These auto-parallelization frameworks can extract parallelism from a program when the compiler can prove, using compile-time and/ or run-time techniques, that the parallel execution of the loop will not affect the correct execution.  This constraint often restricts the maximum parallelism that can be extracted from the loops.  A parallelizing framework uses the result from a compile-time/ run-time dependence analysis to make a decision about parallelizing a loop so that the correct execution of the program is not violated.  \textit{Dependence analysis} techniques work by checking whether the same address will be accessed (loaded from or stored into) in different iterations of a loop. If two different iterations of the loop access the same memory address, the loop is said to be dependent and then it is not parallelized.\\
+Many static-dependence analysis techniques exist that can be used by a parallelizing framework to determine which loops are parallelizable. If the compiler can not determine, at compile time, whether there will be a dependence at run-time, \textit{dependence profiling} is used to determine if any dependence is occurring at run-time.  In dependence profiling, the memory accessed by the possibly dependent load/store instructions are observed for any dependences.  The result of this run-time dependence analysis for a \textit{training} run of the program is kept in a profile file.  To make parallelizing decisions, the profile file is consulted.  If the profile file tells that, for the training run, there is no dependence in a given loop, the loop is parallelized. But still a recovery mechanism is necessary because profiling cannot be used to prove that there is no dependence in the loop.\\
+To extract more parallelism from the program, more loops should be executed in parallel than are done by the conventional parallelizing frameworks.  For example, when there is a possibility that a load-store pair \textit{may} be dependent at run-time (due to insufficient alias information), the loop still can be executed in parallel with a hope that the dependence will not occur.  But to ensure correct execution, there should be a guarantee that the parallel execution of the loop will not affect the correct execution of the program if the dependence actually occurs at run-time.\\
+Thread level speculation (TLS) is a technique that guarantees the correct speculative execution of a program even if there is a dependence inside the loop.  There have been numerous studies on hardware support for speculative threads, which intend to ease the creation of parallel threads for programmers and compilers. Recently, Hardware Transactional Memory (HTM) has been proposed to aid the development of parallel programs.
+Thread-Level Speculation (TLS) has been used to exploit parallelism in sequential applications that are difficult to parallelize using traditional parallelization techniques. For example, a loop that contains an inter-thread data dependence due to loads and stores through pointers cannot be parallelized using traditional compilers; but with the help of TLS, the compiler can parallelize this loop speculatively while relying on the underlying hardware to detect and enforce inter-thread data dependences at run-time.\\
+There has been a significant amount of research done on Thread Level Speculation (TLS) on how to automatically extract speculative parallelism from programs and on how to support TLS in hardware.  One way to find profitable loops from the program to be executed in parallel is to look at the probability of the loop being dependent and perform a cost analysis that takes into consideration the dependence probability along with other factors (e.g. the execution time of the loop as compared to the whole execution time of the program etc.) that effect the speculative execution of the loop.\\
+IBM's BlueGene/Q is the latest supercomputer that has HTM and TLS support.  BlueGene/Q supports these two hardware features with the help of versioning cache.  The hardware stores a consistent program state in the L2 cache and, in case of misspeculation, the program is rolled back to a previous consistent state.\\
+While determining the probability of a loop being dependent with the help of profiling, previous approaches collected the profile statistics for only one training run of the program.  Berube \textit{et al.} shows that programs' behaviours change for different inputs.  Therefore, profile collected from a single training run is often not sufficient to perform a cost analysis and find beneficial loops for speculative execution.  Berube \textit{et al.} presents a method called Combined Profiling (CP) to statistically combine the profiles obtained from training runs with different inputs.  CP uses histograms to combine profiles.  Looking at the histograms, the compiler can determine the probability of the desired behaviour (probability of a taken edge in the Control Flow Graph (CFG), probability of a loop being dependent/ independent) of the program or program part (loop or function).\\
+With TLS hardware in hand, this research tries to answer the following questions:
+\section{Research Questions}
+\begin{itemize}
+\item How to use Combined Profiling to combine the data-dependence profiles obtained from different training runs?  The combined profile stores as much dependence information as possible to perform a profitability analysis.
+\item Using this profile information and some simple heuristics to determine profitable loops, a performance evaluation of speculative execution of loops in the SPEC2006 and PolyBench/C benchmarks with the BlueGene/Q supercomputer as the hardware platform.
+\item A performance evaluation of the different factors affecting the speculative execution of the loops of the aforesaid benchmarks in the IBM BlueGene/Q machine.
+\end{itemize}
+
+The rest of the thesis is organized as follows - Chapter~\ref{chapter:background} gives some background information on thread level speculation and data dependence profiling.  Chapter~\ref{chapter:cp} demonstrates the proposed use of combined profiling methodology for data dependence profiling as implemented in the LLVM compiler.  This chapter also includes a discussion on the observed variability of the dependence behaviour of loops in the SPEC2006 and PolyBench/C benchmarks.  Chapter~\ref{chapter:polly} presents an automatic speculative parallelization framework implemented in \textit{Polly} (polyhedral optimizer in LLVM) that uses some simple heuristics to find profitable loops for speculative execution.  This chapter also gives a performance comparison of the speculative version of the benchmarks with the parallel version generated by the automatic OpenMP parallelizer of Polly.  In Chapter~\ref{chapter:O5}, the automatic speculative parallelization framework uses the dependence analyzer of LLVM and gives a performance comparison of the speculative version with the different parallel versions (SIMDized, OpenMP parallelized) generated by IBM's \textit{xlc} compiler for the SPEC2006 and PolyBench/C benchmarks.  Chapter~\ref{chapter:conclusion} and~\ref{chapter:related work} present the conclusion and related work.
 
 \chapter{Background}
-
-This chapter describes the necessary background information for the research.  First in section \ref{sec:data_dependence}, different kinds of data dependences are explained.  The section also gives motivating examples where there are \textit{may dependences} inside loops those change with respect to program inputs.  Section \ref{sec:fdo} gives the background information on feedback directed optimization (FDO).  This section describes different steps of FDO with a relevant discussion on \textit{dependence profiling}.  Section \ref{sec:tls} describes different concepts of \textit{Thread level speculation} (TLS), with  a discussion of special hardware features necessary to support TLS.  The section also describes the features of IBM Bluegene/Q that enables TLS in it.  The TLS specific compiler information and different TLS pragmas are also described.  Lastly, section \ref{sec:llvm} gives informaton about the different useful passes and tools in LLVM that are used in the research.
+\label{chapter:background}
+This chapter describes the necessary background information for the work. In section~\ref{sec:data_dependence}, various kinds of data dependences in the program are explained.  The section also gives some motivating examples where \textit{may dependences} inside loops may change with respect to the program inputs.  Section~\ref{sec:fdo} gives the background information on Feedback Directed Optimization (FDO).  This section describes different steps of FDO with a relevant discussion on \textit{dependence profiling}.  Section~\ref{sec:tls} describes different concepts of \textit{Thread level speculation} (TLS), with  a discussion of special hardware features necessary to support TLS.  The section also describes the features of IBM BlueGene/Q that enables TLS.  The TLS-specific compiler information and different TLS pragmas are also described.  Lastly, Section \ref{sec:llvm} gives information about the different useful passes and tools in LLVM that are used in the research.
 
 \section{Data Dependence}
 \label{sec:data_dependence}
-A data dependency in computer science is a situation in which a program statement (instruction) accesses the same memory location that was accessed by a preceding statement.  If there are two statements S1 and S2, S2 depends on S1 when \\- 
+A data dependency occurs in a computer program where two program statements access the same memory location  and at least one of the accesses is a write.  If there are two statements S1 and S2, S2 depends on S1 when \\- 
 
 $[R(S1) \bigcap W(S2)] \bigcup  [W(S1) \bigcap R(S2)] \bigcup [W(S1) \bigcap W(S2)] \neq \theta $\\
 
-Where $R(S)$ is the set of memory locations read by a statement $S$, and $W(S)$ is the set of memory locations written by statement $S$.  Dependences exist when there is a feasible runtime execution path from $S1$ to $S2$.  This is called Bernstein Condition, named by A. J. Bernstein. \cite{bernstein}
+Where $R(S)$ is the set of memory locations read by a statement $S$, and $W(S)$ is the set of memory locations written by statement $S$.  Dependences exist when there is a feasible runtime execution path from $S1$ to $S2$.  This is called Bernstein Condition, named after A. J. Bernstein~\cite{bernstein}.
 
 Dependences are categorized in the following manner - 
 
@@ -166,22 +182,12 @@ Static dependence analysis is a technique where the compiler determines at compi
 \label{fig:example1}
 \end{figure}
 
-%\begin{table}[ht]
-%\caption{Motivating Examples}
-%\begin{tabular}{c||c}
-%
-% \includegraphics[scale=0.4]{./pdf/call.pdf} &
-%
-% \includegraphics[scale=0.4]{./pdf/pointer.pdf} \\
-%
-%\end{tabular}
-%\end{table}
 \begin{figure}[h]
 \begin{center}
-\label{fig:motv_exmp_2}
 \scalebox{.5}{ \includegraphics{./pdf/call.pdf}}
 \caption{Code snippet for a loop where the alias relationship can't be determined at compile time.  The second \textit{for} loop in main can be either parallel or not based on the user input \textit{choice}.  Here the array subscript is a function call and the dependence analysis techniques reports this as a \textit{may} dependence.}
 \end{center}
+\label{fig:motv_exmp_2}
 \end{figure}
 
 Some dependence analysis use algebric techniques to find out the dependence behaviour of the loop. \cite{itest} \cite{lrpdtest} \cite{omega}  These techniques operate of array subscripts.  But they require the array subscripts to be \textit{affine} function of the loop induction variables.  If the subscript accesses another element or is determined by a function call, compilers can not prove the dependence at compile time and they report \textit{may} dependence. Figure \ref{fig:motv_exmp_2} demonstrates a program where the dependence relation of the statement inside the second \textit{for} loop of the \textit{main}  function is not provable at compile time because the subscript of the array is a function call that might change the alias relation(s). The function \textit{change} makes the loop either dependent or parallel based on user input.  Profiling of memory accesses come into play in these situations.
@@ -194,22 +200,16 @@ Feedback directed optimization (FDO) is a compiler optimization technique where 
 
 \begin{itemize}
 \item \textbf{Instrumentation}\\
-
 Compiler optimizations work on some Internal Representation (IR) of the source code.  The compiler front end converts the high level constructs of the source code to IR (language independent) for the middle end to work with it.  An instrumentation pass in FDO instruments the bitcode by adding calls to some profiling library functions so that the behaviour of interest can be captured.
-
 \item \textbf{Profiling} \\
-
 The instrumented bitcode is run with some training input and the output is stored in a profile file. 
-
 \item \textbf{Optimization} \\
-
 After the profiling run, an optimization pass is executed that takes both the original bitcode and the profile file as input and applies some code transformation based on the profiling data.  As a result of this pass, an optimized (may not be optimal) version of the bitcode is produced that in turn is translated to an executable by the back end.
-
 \end{itemize} 
 
 \subsection{Dependence Profiling}
 
-There are many behaviours of the program that can be captured with the help of profiling.  Some examples are \textit{edge profiling} (The execution frequency of the edges in the Control Flow Graph(CFG) of the program are profiled), \textit{path profiling} (the execution frequency of the different execution paths in the Call graph of the program are profiled), \textit{execution profile}  (Execution profile of the subroutines in the program that contains the execution time, resource consumption etc. by various routines in the program), \textit{power profiling} (power consumption by programs) etc. \\
+Different behaviours of the program that can be captured with the help of profiling.  Some examples are \textit{edge profiling} (The execution frequency of the edges in the Control Flow Graph(CFG) of the program are profiled), \textit{path profiling} (the execution frequency of the different execution paths in the Call graph of the program are profiled), \textit{execution profile}  (Execution profile of the subroutines in the program that contains the execution time, resource consumption etc. by various routines in the program), \textit{power profiling} (power consumption by programs) etc. \\
 
 \begin{figure}[h]
 \begin{center}
@@ -223,23 +223,23 @@ Dependence profiling stores information about the different memory accesses by p
 
 \subsection{Cost of profiling}
 
-Profiling comes with a cost.  There are two types of overhead - 1. space overhead and 2. time overhead.  For dependence profiling, the memory overhead is huge if the memory accesses for the \textit{may dependent} statements across the \textit{whole} iteration space of the loop had to be stored.  Thus to reduce this overhead, the dependence analysis techniques normally work on \textit{loop samples} (some considerable portion of the iteration space) to get an approximation of the dependence behaviour.  Moreover, some compression techniques can also be applied to the storage required for profiling. \\
-
+Profiling comes with a cost.  There are two types of overhead:
+\begin{enumerate}
+\item Space Overhead
+\item Time Overhead
+\end{enumerate}
+For dependence profiling, the memory overhead is huge if the memory accesses for the \textit{may dependent} statements across the \textit{whole} iteration space of the loop is stored.  Thus to reduce this overhead, the dependence analysis techniques normally work on \textit{loop samples} (some considerable portion of the iteration space) to get an approximation of the dependence behaviour.  Moreover, some compression techniques can also be applied to the storage required for profiling.\\
 The timing overhead is optimized by either a fast lookup algorithm (e.g. hash table) and/or by creating smaller search space (with the use of access sets \cite{sd}).  For JIT(Just-in-time) compilers those use runtime profiling, time overhead is a major issue.  But for \textit{off-line} profiling (profiling done in a separate profiling run), the time is not a major issue, though profiling time should be reasonable.
 
 \section{Combined Profiling}
 
-Programs dependence behaviour changes according to the input to the program.  In the programs of figure \ref{fig:example1} and \ref{fig:motv_exmp_2}, for an input of '0', the second \textit{for} loop inside \textit{main}  \textit{cannot} be executed in parallel while for an input of '1', the loop can be parallel. But FDO has not achieved widespread use by compiler users because the selection of a data input to use for profiling that is representative of the execution of the program throughout its lifetime is difficult. For large and complex programs dealing with many use cases and used by a multitude of users, assembling an appropriately representative workload may be a difficult
-task. Picking one training run to represent such a space is far more challenging, or potentially impossible, in the presence of mutually-exclusive use cases. Moreover, user workloads are prone to change over time. Performance gains today may not be worth the risk of potentially significant performance degradation in the future.\\
-
+Programs dependence behaviour changes according to the input to the program.  In the programs of figure \ref{fig:example1} and \ref{fig:motv_exmp_2}, for an input of '0', the second \textit{for} loop inside \textit{main}  \textit{cannot} be executed in parallel while for an input of '1', the loop can be parallel. But FDO has not achieved widespread use by compiler users because the selection of a data input to use for profiling that is representative of the execution of the program throughout its lifetime is difficult. For large and complex programs dealing with many use cases and used by a multitude of users, assembling an appropriately representative workload may be a difficult task. Picking one training run to represent such a space is far more challenging, or potentially impossible, in the presence of mutually-exclusive use cases. Moreover, user workloads are prone to change over time. Performance gains today may not be worth the risk of potentially significant performance degradation in the future.\\
 Berube et al \cite{BerubeCP} proposed a method called Combined Profiling(CP) that eases the burden of training-workload selection while also mitigating the potential for performance degradation. First, there is no need to select a single input for training, because data from any number of training runs can be
 merged into a combined profile. More importantly, CP preserves variations in execution behaviour between inputs. The distribution of behaviours can be queried and analyzed by the compiler when making code transformation decisions. \\
-
  The profile of a program records information about a set of program behaviours. A program behaviour
 $B$ is a (potentially) dynamic feature of the execution of a program. The observation of a behaviour $B$ at a location $l$ of a representation of the program is denoted $B_l$ A behaviour
 $B$ is quantified by some metric $M (B)$ as a tuple of numeric values. A monitor $R(B, l, M )$ is injected into a program at every location $l$ where the behaviour $B$ is to be measured
-using metric $M$ . At the completion of a training run, each monitor records the tuple $<l, M (B_l )>$ in a raw profile.  In case of dependence profiling, the \textit{behaviour} to be observed is whether the loop is independent or not.  A \textit{monitor} is inserted inside every loop of the program and the \textit{metric} is the number of independent/ dependent executions.  \\
-
+using metric $M$ . At the completion of a training run, each monitor records the tuple $<l, M (B_l )>$ in a raw profile.  In case of dependence profiling, the \textit{behaviour} to be observed is whether the loop is independent or not.  A \textit{monitor} is inserted inside every loop of the program and the \textit{metric} is the number of independent/ dependent executions.\\
 CP stores the profile information with the help of histograms. Histograms are built in an incremental fashion in CP, thus removing the cost of storing multiple profile files that might increase the storage cost.  In general, updating produces a new histogram in 2 steps:
 
 \begin{enumerate}
@@ -274,8 +274,6 @@ $W_{b3}(H2) = (((117-111)\div 8)\times 1) + (((124-17)\div 8)\times 2)  = 2.5 $ 
 \begin{center}
 $W_{b3}(H3) = (3.5 + 2.5) = 6.0$
 \end{center}
-
-
   
 \section{Thread Level Speculation}
 
@@ -284,71 +282,45 @@ This section describes the different concepts of TLS.
 
 \subsection{Overview}
  
- 
 \begin{enumerate}
  
-\item Predecessor and Successor Threads \\
-
+\item \textbf{Predecessor and Successor Threads} \\
 Under the thread-level speculation (also called speculative parallelization) approach, sequential sections of code are speculatively executed in parallel hoping not to violate any sequential semantics.
 The control flow of the sequential code imposes a total order on the threads. At any time during execution, the earliest thread in program order is non-speculative while the later ones can be speculative.
 The terms \textit{predecessor} and \textit{successor} are used to relate threads in this total order.  In most schemes a squash rolls the execution back to the start of the thread, but some proposals in the literature use periodic checkpointing of threads such that upon a squash it is only necessary to roll the execution back to the closest safe checkpointed state. When the execution of a nonspeculative thread completes it commits and the values it generated can be moved to safe storage (usually main memory or some shared higher-level cache). At this point its immediate successor acquires non-speculative status and is allowed to commit. When a speculative thread completes it must wait for all predecessors to commit before it can commit.
-
-
-\item Inter Thread Data Dependence \\
-
+\item \textbf{Inter Thread Data Dependence} \\
 Data dependencies are typically captured by monitoring the data written and the data read by individual threads. A data dependence violation occurs when a thread writes to a location that has already been read by a successor thread. Dependence violations lead to squashing of thread, which involve discarding the side effects produced by the thread being squashed.
-
-\item Buffering of States \\
-
+\item \textbf{Buffering of States} \\
 Stores performed by a speculative thread generate speculative state that cannot be merged with the safe state of the program because this may lead to incorrect results. Such state is stored separately, typically in the cache of the processor. They are not written back to memory. In case of a violation is detected, the state is discarded from the cache. Also if a speculative thread overﬂows its speculative buffer the thread must stall and wait to become non-speculative. When the thread becomes non-speculative, the state is allowed to propagate (commit) to memory. When a non-speculative thread finishes execution, it commits. Committing informs the rest of the system that the state generated by the task is now part of the safe program state.
-
-
-\item Data Versioning \\
-
+\item \textbf{Data Versioning} \\
 A thread has at most a single version of any given variable. However, different speculative threads running concurrently in the machine may write to the same variable and, as a result, produce different versions of the variable. Such versions must be buffered separately. Moreover, readers must be provided the correct versions. Finally, as threads commit in order, data versions need to be merged with the safe memory state also in order to ensure correctness.
-
-\item Multi-Versioned Caches \\
-
- A cache that can hold state from multiple tasks is called multi-versioned. \cite{Cintra00}\\
-\cite{Gopal}\cite{steffanISCA00} There are two performance reasons why multi-versioned caches are desirable: they avoid processor stalls when there is imbalance between tasks, and enable lazy commits. 
- 
- \end{enumerate}
+\item \textbf{Multi-Versioned Caches} \\
+ A cache that can hold state from multiple tasks is called multi-versioned~\cite{Cintra00,Gopal,steffanISCA00}.\\
+There are two performance reasons why multi-versioned caches are desirable: they avoid processor stalls when there is imbalance between tasks, and enable lazy commits.  
+\end{enumerate}
  
  Speculative threads are usually extracted from either loop iterations or function continuations, without taking into consideration possible data dependence violations. The compiler marks these
 structures with a fork-like spawn instruction, so that the execution
 of such an instruction leads to a new speculative thread. The parent thread continues execution as normal, while the child thread is mapped to any available core. For loops, spawn points are placed
 at the beginning of the loop body, so that each iteration of the loop spawns the next iteration as a speculative thread. Threads formed from iterations of the same loop (and that, thus, have the
-same spawn point) are called \textit{sibling threads}. For function calls, spawn points are placed just before the function call such that the non-speculative thread proceeds to the body of the function, and a speculative thread is created from the function’s continuation. \cite{XekalakisICS09} \\
-
+same spawn point) are called \textit{sibling threads}. For function calls, spawn points are placed just before the function call such that the non-speculative thread proceeds to the body of the function, and a speculative thread is created from the function’s continuation~\cite{XekalakisICS09}. \\
 Two different overheads should be considered when running loops speculatively in parallel.  The first overhead comes from buffering the state of the program before the start of speculative execution so that the program can be rolled back to a previous consistent thread.  If the computation done inside a thread is not large enough to overcome this cost, there is no benefit from speculation. \\
-
 The overhead comes from the cost of misspeculation.  If there is actual dependence occurring between threads, the younger thread is squashed.  After a number of retries, the loop becomes sequential.  Thus if the probability is high that the loop is dependent, the loop should not be executed in parallel.
  
 \subsection{TLS in IBM BlueGene/Q}
 
 Bluegene/Q(BG/Q) is the latest IBM supercomputer in the Bluegene series (after BG/L and BG/P) that has hardware support for TLS and Transactional Memory(TM).  The initial objective of BG/Q was to include TLS support but later TM support was also added to it.  BG/Q requires hardware support for TLS, working in collaboration with a speculative runtime. The point of coherence for TLS in BG/Q is the L2 cache.  Each different version of a memory address can be stored in a different way of the L2 cache. When a write occurs for a speculative thread, the L2 allocates a new way in the corresponding set for the write. A value stored by a speculative write is private to the thread and is not made visible to other threads. The value is made visible to other threads when a thread commits and is discarded upon a thread squashing. In addition, the L2 directory records, for each memory access, whether it is read or written, and whether it is speculative. For speculative accesses, the hardware also tracks the thread that has read or written the line by recording the speculation ID used by the thread to activate speculation. This enables the hardware to detect conflicts among threads and also between speculative and non-speculative thread. \\
-
 The IBM \textit{xlc} compiler has been modified to give speculation support in BG/Q and it is called \textit{bgxlc\_r}.  The \_r extension at the end generates thread safe code.  The following pragmas are used to speculatively execute a loop in parallel. \\
-
 \textbf{\#pragma speculative for} \\
+By default, if this pragma is used, iterations of the loop are divided into \textit{chunks} of size \textit{ceiling(number\_of\_iterations/number\_of\_threads)}. Each thread is assigned a separate chunk.\\
+The following options can also be used with the \textit{\#pragma speculative for}:\\
 
-By default, if this pragma is used, iterations of the loop are divided into \textit{chunks} of size
-\textit{ceiling(number\_of\_iterations/number\_of\_threads)}. Each thread is assigned a separate chunk.
-
-The following options can also be used with the \textit{\#pragma speculative for} - \\
-
-$num\_threads (int\_exp)$ - The value of \ is an integer expression that specifies the number of
-threads to use for the parallel region.\\
-
-$schedule (type)$- Specifies how iterations of the for loop are divided among available threads.
-Thread-level speculative execution supports static scheduling. Acceptable
+$num\_threads (int\_exp)$ - The value of \ is an integer expression that specifies the number of threads to use for the parallel region.\\
+$schedule (type)$- Specifies how iterations of the for loop are divided among available threads. Thread-level speculative execution supports static scheduling. Acceptable
 values for type are as follows:\\
-
-\textit{static} - Iterations of a loop are divided into chunks of size
+\textit{static} - Iterations of a loop are divided into chunks of size\\
 \textit{ceiling(number\_of\_iterations/number\_of\_threads)}. This is the default scheduling policy. This scheduling policy is also known as block scheduling.\\
-
-\textit{static,n}- Iterations of a loop are divided into chunks of size $n$. Each chunk is
-assigned to a thread in round-robin fashion. $n$ must be an integral assignment expression of value 1 or greater. This scheduling policy is also known as block cyclic scheduling. If $n=1$, iterations of a loop are divided into chunks of size 1 and each chunk is assigned to a thread in round-robin fashion. \\
+\textit{static,n}- Iterations of a loop are divided into chunks of size $n$. Each chunk is assigned to a thread in round-robin fashion. $n$ must be an integral assignment expression of value 1 or greater. This scheduling policy is also known as block cyclic scheduling. If $n=1$, iterations of a loop are divided into chunks of size 1 and each chunk is assigned to a thread in round-robin fashion. \\
 
 \begin{figure}[h]
 \begin{center}
@@ -358,40 +330,27 @@ assigned to a thread in round-robin fashion. $n$ must be an integral assignment 
 \label{fig:indep_window}
 \end{figure}
 
-
 Figure \ref{fig:indep_window} shows an example where there is a \textit{strided} dependence pattern. (Dependence occurring at every fourth iteration of the loop).  Here every 4 iterations can be executed in parallel and into batches. The following pragma should be used in this scenario- \textit{\#pragma speculative for num\_threads(4) schedule(1)}.  While for using 2 threads pragma will be \textit{\#pragma speculative for num\_threads(2) schedule(2)}.  The $num\_threads$ and $schedule$ options should be carefully chosen to balance the overhead of thread creation.
-
-
-
 
 \section{LLVM}
 \label{sec:llvm}
 
-The proposed framework has been implemented in the LLVM compiler infrastructure.  LLVM has modular structure that makes the compiler easy to work with.  This section describes the different tools and passes those are useful for loop dependence analysis.
+The combined profiling and speculative parallelizing framework has been implemented in the LLVM compiler infrastructure.  LLVM has modular structure that makes the compiler easy to work with.  This section describes the different tools and passes those are useful for loop dependence analysis.
 
 \begin{enumerate}
 
 \item \textbf{The \textit{opt} tool}\\
-
 The \textit{opt} tool of \textit{llvm} is useful to run different optimization-related passes.  There can be \textit{analysis} passes that performs analysis on IR constructs (like loops, CFGs, Call Graphs etc.) but does not modify the IR. The \textit{transformation} passes performs the actual transformations (e.g loop restructuring, Code motion etc.)
-
-\item \textbf{Useful Passes}
-
-The -scev (ScalarEvolution) is an analysis pass that can be used to analyze and categorize scalar expressions in loops.  This pass specializes in recognizing general induction variables, representing them with the abstract and opaque
-SCEV class.  Given this analysis, trip counts of loops and other important properties can be obtained. \\
-
-The -mem2reg (Promote Memory to Register) is a transformation pass that converts non-SSA(static single assignment) form of LLVM IR into SSA form, raising loads and stores to stack-allocated values to "registers" (SSA values). Many of LLVM optimization passes operate on the code in SSA form and thus most probably will be no-op seeing IR in non-SSA form.\\
-
-The -loops (Natural Loop Information) is an analysis pass that is used to identify natural loops and determine the loop depth of various nodes of the CFG.\\
-
-The -loop-simplify is a transformation pass that performs several transformations on natural loops to change them into a simpler form, which makes subsequent analyses and transformations simpler and more effective. Loop pre-header insertion guarantees that there is a single, non-critical entry edge from outside of the loop to the loop header.  Loop exit-block insertion guarantees that all exit blocks from the loop (blocks those are outside of the loop that have predecessors inside of the loop) only have predecessors from inside of the loop (and are thus dominated by the loop header). \\
-
-The -memdep pass is an analysis pass that performs memory dependence analysis.  This pass is based on the alias analysis pass.  The following types of alias analysis available in LLVM
+\item \textbf{Useful Passes}\\
 
 \begin{itemize}
-
-\item The -basicaa pass is an aggressive local analysis that knows many important facts like -
-
+\item The \textbf{-scev} (ScalarEvolution) is an analysis pass that can be used to analyze and categorize scalar expressions in loops.  This pass specializes in recognizing general induction variables, representing them with the abstract and opaque
+SCEV class.  Given this analysis, trip counts of loops and other important properties can be obtained. \\
+\item The \textbf{-mem2reg} (Promote Memory to Register) is a transformation pass that converts non-SSA(static single assignment) form of LLVM IR into SSA form, raising loads and stores to stack-allocated values to "registers" (SSA values). Many of LLVM optimization passes operate on the code in SSA form and thus most probably will be no-op seeing IR in non-SSA form.\\
+\item The \textbf{-loops} (Natural Loop Information) is an analysis pass that is used to identify natural loops and determine the loop depth of various nodes of the CFG.\\
+\item The \textbf{-loop-simplify} is a transformation pass that performs several transformations on natural loops to change them into a simpler form, which makes subsequent analyses and transformations simpler and more effective. Loop pre-header insertion guarantees that there is a single, non-critical entry edge from outside of the loop to the loop header.  Loop exit-block insertion guarantees that all exit blocks from the loop (blocks those are outside of the loop that have predecessors inside of the loop) only have predecessors from inside of the loop (and are thus dominated by the loop header). \\
+\item The \textbf{-memdep} pass is an analysis pass that performs memory dependence analysis.  This pass is based on the alias analysis pass.  The following types of alias analysis available in LLVM.
+\item The \textbf{-basicaa} pass is an aggressive local analysis that knows many important facts like:
 \begin{itemize}
 \item Distinct globals, stack allocations, and heap allocations can never alias.
 \item Globals, stack allocations, and heap allocations never alias the null pointer.
@@ -400,56 +359,47 @@ The -memdep pass is an analysis pass that performs memory dependence analysis.  
 \item Many common standard C library functions never access memory or only read memory.
 \item Function calls can not modify or references stack allocations if they never escape from the function that allocates them (a common case for automatic arrays).
 \end{itemize}
-
-\item The -globalsmodref-aa pass pass implements a simple context-sensitive mod/ref and alias analysis for internal global variables that don’t “have their address taken”. If a global does not have its address taken, the pass knows that no pointers alias the global. This pass also keeps track of functions that it knows never access memory or never read memory. The real power of this pass is that it provides context-sensitive mod/ref information for call instructions. This allows the optimizer to know that calls to a function do not clobber or read the value of the global, allowing loads and stores to be eliminated.
-
-\item The -steens-aa pass implements a variation on the well-known "Steensgaard’s algorithm" for interprocedural alias analysis. Steensgaard’s algorithm is a unification-based, flow-insensitive, context-insensitive, and field-insensitive alias analysis that is also very scalable (effectively linear time). 
-
-\item The -scev-aa pass implements AliasAnalysis queries by translating them into ScalarEvolution queries. This gives this pass a more complete understanding of pointer instructions and loop induction variables than other alias analyses have.
-
+\item The \textbf{-globalsmodref-aa} pass pass implements a simple context-sensitive mod/ref and alias analysis for internal global variables that don’t “have their address taken”. If a global does not have its address taken, the pass knows that no pointers alias the global. This pass also keeps track of functions that it knows never access memory or never read memory. The real power of this pass is that it provides context-sensitive mod/ref information for call instructions. This allows the optimizer to know that calls to a function do not clobber or read the value of the global, allowing loads and stores to be eliminated.
+\item The \textbf{-steens-aa} pass implements a variation on the well-known "Steensgaard’s algorithm" for interprocedural alias analysis. Steensgaard’s algorithm is a unification-based, flow-insensitive, context-insensitive, and field-insensitive alias analysis that is also very scalable (effectively linear time). 
+\item The \textbf{-scev-aa} pass implements AliasAnalysis queries by translating them into ScalarEvolution queries. This gives this pass a more complete understanding of pointer instructions and loop induction variables than other alias analyses have.
 \end{itemize}
-
-The dependence analysis reports \textit{may}, \textit{must} and \textit{no} dependence information.  Instrumentation is performed for the \textit{may} dependent instructions reported by the dependence analysis.  The next chapter describes the details of how the framework is implemented.
-
+The dependence analysis reports \textit{may}, \textit{must} and \textit{no} dependence information.  Instrumentation is performed for the \textit{may} dependent instructions reported by the dependence analysis.  The next chapter describes the details of the combined profiling framework.
 \end{enumerate}
 
-\chapter{Description of the Framework}
+\chapter{Combined Data Dependence Profiling}
+\label{chapter:cp}
 
 \section{Introduction}
 
-The proposed framework has been implemented in the LLVM compiler infrastructure.  A \textit{transformation} instruments the LLVM \textit{Internal Representation}(IR) to prepare the later for profiling. The framework only instruments memory accesses (loads and stores) for loops with some specific properties (described later) as the restrictions imposed by the (\textit{bgxlc\_r}) compiler.  The instrumented code is run for different inputs.  These runs build the combined profile incrementally and writes them in a file called \textit{llvmprof.out} \footnote{The standard name for a LLVM profile file. Note that the profile file will be kept in a spearate directory with a specific program, thus avoiding overwriting}.  Another analysis pass takes this profile file, performs a mapping between the profile information and loops in the program, and produce an \textit{information} file based on the profitability of loops.  The \textit{information} file contains the file names and the line numbers where the speculative \textit{pragma} is to be inserted.  A script takes this information file as input and automatically performs the source-code instrumentation with the TLS \textit{pragmas}. After the instrumentation is done, the optimized source files are compiled with the \textit{bgxlc\_r} compiler to produce the executable which in turn can be run on BG/Q.
-
-In this chapter, section \ref{framework} gives a high-level description of the framework.  Next in section \ref{LLVMImplementation} and \ref{library}, the different components of the framework are explained in details.
+Data dependence profiling is used to find out whether the \textit{may dependences} reported by the compiler by static analysis, materialize during run time.  This chapter describes how to use Combined Profiling~\cite{BerubeCP} in the case of data dependence profiling.  Combined data dependence profiles are built incrementally thus removing the necessity to store multiple profiles.  The combined profile file stores as much dependence information per loop as is necessary to perform a cost analysis to find speculation candidates.  A combined data dependence profiling framework implemented in the LLVM compiler infrastructure is described.  Results show that for benchmarks widely used in TLS literature, loops' dependence behaviour \textit{does not} change for different inputs.\\
+Section \ref{framework} gives a high-level description of the framework.  Next in section \ref{LLVMImplementation} and \ref{library}, the different components of the framework are explained in details.
 
 \section{The Framework}
 \label{framework}
 
 \begin{figure}[ht]
 \begin{center}
-\scalebox{0.4 }{ \includegraphics{./pdf/framework_org.pdf}}
+\scalebox{0.6}{ \includegraphics{./pdf/framework_cp.pdf}}
 \renewcommand{\figure}{Fig.}
-\caption{ The Framework}
+\caption{ The Combined Data Dependence Framework implemented in LLVM}
 \end{center}
 \label{fig:framework}
 \end{figure}
 
-Figure \ref{fig:framework} shows the implemented framework.  First a \textit{transformation} pass \textit{profile-dependence} is run on the given source-code to instrument the later for profiling.  Also another \textit{analysis} pass \textit{printDbgInfo} is run to store the loop IDs and their corresponding file names and line numbers in a \textit{log} file.  Both of these passes need the bitcode to be produced with the debug information (-g option of clang).  Also the transformation pass needs three LLVM passes - \textit{mem2reg}, \textit{loops} and \textit{loop-simplify}.  After that, the instrumented bitcode is run with different inputs to produce a combined profile file \textit{llvmprof.out}.  Another analysis pass, \textit{profile-analysis} takes both the profile file and \textit{log} file as input and produces an \textit{information} file about the file name and line numbers where the speculation pragma(s) is/are to be inserted.  A script is then run that automatically instruments the source code following the \textit{information} file. \\
-
+Figure \ref{fig:framework} shows the implemented framework.  First a \textit{transformation} pass \textit{profile-dependence} is run on the given source-code to instrument the later for profiling.  Also another \textit{analysis} pass \textit{printDbgInfo} is run to store the loop IDs and their corresponding file names and line numbers in a \textit{log} file.  Both of these passes need the bitcode to be produced with the debug information (-g option of clang).  Also the transformation pass needs three LLVM passes - \textit{mem2reg}, \textit{loops} and \textit{loop-simplify} (these passes are described already in~\ref{sec:llvm} of chapter 2). The instrumented bitcode is run with different inputs to produce a combined profile file \textit{llvmprof.out}.  This profile file can be consulted to find speculation candidate loops using different heuristics as described in later chapters.\\
 The following sections give more details about the different components of the framework.
 
 
 \section{The Instrumentation Pass}
+\label{sec:instrumentation_pass}
 
 The instrumentation pass performs IR instrumentation by adding calls to library-functions used for profiling.  This section describes the implementation details of the Instrumentation Pass.
 
 \subsubsection{Choosing Loops}
 
 The pass is written as a ModulePass in LLVM.  For a given bitcode, the pass iterates through all the modules.  For a given module, the pass iterates over the functions of the module and for a given function, the pass iterates over the basic blocks in the function. \\
-
 In LLVM, the first basic block of a \textit{for} loop is named as \textit{for.cond$X$} where $X$ is any number (depends on the number of loops in the program).  Thus while iterating through the basic blocks of the function, if the pass finds a basic block with \textit{for.cond} in it's name, a variable \textit{loop\_count} is incremented. \\
-
 The \textit{loop\_count} variable is used as a loop-identifier.  The variable is of type unsigned integer.  The variable is also used to create a unique global variable - \textit{iteration\_count} for each loop.  \textit{iteration\_count} is used in identifying the current iteration ID of the loop (as they will be needed later to calculate the dependence distance).  The iteration counter is cleared at the exit block of the loop so that the counter can be reused for another execution of the loop. \\
-
 For being a speculation candidate, the loop has to have the following properties -
 
 \begin{itemize}
@@ -467,13 +417,13 @@ For being a speculation candidate, the loop has to have the following properties
 \end{center}
 \end{figure}
 
-\item If the loop has non-intrinsic function calls inside it's body, then the loop is not safe to parallelize.
+\item If the loop has non-intrinsic function calls inside it's body, then the loop is not safe to parallelize.  But this constraint does not block a loop from executing speculatively in parallel.  The compiler can either relax the constraint or conservatively not parallelize loops with function calls.
 
 \end{itemize}
 
 \subsubsection{Implementation in LLVM}
 \label{LLVMImplementation}
-Different functions are used to check the above mentioned special characteristics of the loop.  This section gives the details of them.
+Different functions are used to check the above mentioned special characteristics of the loop.  This section gives the details of these functions.
 
 \begin{itemize}
 
@@ -493,9 +443,7 @@ After filtering out \textit{calls} to C-library functions, a check is necessary 
 \subsubsection{The Algorithm}
 
 The instrumentation pass is implemented as A \textit{ModulePass} in LLVM.  Algorithm \ref{alg:InstrumentAlgo} is used for the instrumentation.  Basically the algorithm iterates over all the modules in the program and next all the functions in the module and lastly all the basic blocks in the function. \\
-
 When the first basic block of the function is met, a void pointer is allocated that is used to store the different memory accesses by the \textit{load} and \textit{store} instructions those \textit{may} be dependent. This pointer is also used as an argument to the profiling functions.[Lines 4-6] \\
-
 If the basic block's name contains "for.cond", the pass detects a loop.  Here we assume that no previous optimization(s) have been applied to the bitcode and all the loops' basic blocks are in the same order as the loops are met in the source code.  If a basic block is met with "for.cond" in its name, the $loopCount$ variable is incremented and two new global variables are also created. [Lines 8-13]
 
 \begin{itemize}
@@ -506,13 +454,9 @@ If the basic block's name contains "for.cond", the pass detects a loop.  Here we
 \end{itemize}
 
 Thus two global variables per loop are used. But only loops that have the properties as described in section \ref{LLVMImplementation} are instrumented.  The function \textit{candidateLoop}() checks for these properties.  The function takes the help of \textit{LoopInfo} and \textit{ScalarEvolution} passes of LLVM. \\
-
 After creation of the global variables, the exit block of the loop is identified using the \textit{getUniqueExitBlock}() function.  As the loop is previously checked for having one exit block only, this function always returns a unique basic block.  Next, two instructions are inserted in the basic block.  The first one clears the \textit{iteration\_id} so that the variable can be reused in the next execution.  Another \textit{call} instruction  to the \textit{analyseAndWrite}() function is inserted. This function analyses the stored accesses to find the dependence pattern and write to profile  information. [Lines 14-17] \\
-
 Next the loads and stores are identified and calls to the profiling functions are inserted accordingly.  There can be two types of basic blocks where the \textit{loads} and \textit{stores} can reside.  Either \textit{for.body} that comes just after the loop-conditional checking and \textit{for.end} that is the last basic block of the loop. \footnote{This condition happens when there is loop nesting and there are instructions in the outer loop after the execution of the inner loop}.  The loads and stores in these basic blocks are checked to see whether they are reported as \textit{may} dependent by the static analysis.  If they are, their memory accesses are stored in the \textit{void} pointer created before and a \textit{call} instruction to the profiling functions are inserted.  This function takes the memory address accessed, loop ID, iteration ID and the type of access (load/store) as parameters. More on this function is described later. [Lines 19 -29] \\
-
 If the basic block is the loop body (\textit{for.body}), instructions to increment the \textit{iteration\_id} for the specific loop are also inserted. [Lines 30-33] \\
-
 The collected profile is written to the profile file only once - during the exit from the program.  Now there can be two ways how a program can exit - 
 
 \begin{itemize}
@@ -596,16 +540,12 @@ In this section, the different functions and the data structures used in the pro
 
 \subsubsection{Functions}
 
-For each load and store instruction those are reported as may dependent by the static dependence analysis, a function call is inserted that behaves differently for loads and stores.  The following functions are the most important functions of the library. \\   
-
-
+For each load and store instruction those are reported as may dependent by the static dependence analysis, a function call is inserted that behaves differently for loads and stores.  The following functions are the most important functions of the library. \\ 
 \textit{void common(void * x,int count,int loop, char type)} is the main function that is used for dependence detection.  The working algorithm for this function is given in Algorithm \ref{alg:common_algo}. \\
-
-The dependence behaviour is estimated from a portion of the loop's iteration space, the \textit{loop sample}.  The number of iterations to be considered for estimation is tunable by the macro $MAX\_ITERATIONS$.  When this function is called for the first time, it performs a one time initialization of the data structures, this memory portion remains fixed for the whole profiling run.  This is static memory because dynamic memory location gives lots of memory fragmentation. \\
-
-Until the \textit{loop sample} size is met, when a store in encountered, it is thrown in a bag, by the function $add\_store$.  Since we only care about loads that depend on previous stores (RAW dependence), whenever a load is encountered, it is checked against the already captured store instructions for a given loop.  If the access addresses are same, a \textit{dependence pair} is found.  A dependence pair is defined as a tuple $(i_1,i_2)$ for a given loop where $i_1$ is the iteration ID of the store and $i_2$ is the iteration ID of the load. Note, $i_1$ is always less than $i_2$. Dependence pairs for that execution for that given loop are also kept.\\
-
-When the loop enters an iteration ID that just exceeds the sample size; the collection of dependence pairs are analyzed to find the dependence behaviour.  If there are no dependence pairs, that means there were no RAW dependences for that execution of the loop and the loop's parallel execution count is incremented.  If there are some dependence pairs, the loop was not parallel for that execution.  As seen in figure \ref{fig:indep_window}, strided memory access patterns are interesting cases for parallel execution. The function $check\_stride()$ checks if there was a strided dependence pattern. The function uses the state machine described in figure \ref{fig:stride} to find strided dependence.  First the function calculates a dependence distance (distance between the iteration id of the write and that of read) for a given dependence pair.  Next the function checks for dependence pairs with the same dependence distance.  Every time such pair is encountered, a counter is increased.  If the counter value reaches a certain threshold (the threshold id set as 5) is reached, a strided dependence is reported, else the dependence becomes irregular. If there was a stride, the value of the stride is stored in the profile information, else the the loop has irregular dependence pattern. Also to reduce the search space, already visited dependence pairs are not searched again.\\
+The dependence behaviour is estimated from a portion of the loop's iteration space, the \textit{loop sample}.  The number of iterations to be considered for estimation is tunable by the macro \textit{MAX\_ITERATIONS}.  When this function is called for the first time, it performs a one time initialization of the data structures, this memory portion remains fixed for the whole profiling run.  This is static memory because dynamic memory location gives lots of memory fragmentation. \\
+Until the \textit{loop sample} size is met, when a store in encountered, it is thrown in a bag, by the function \textit{add\_store}.  Since we only care about loads that depend on previous stores (RAW dependence), whenever a load is encountered, it is checked against the already captured store instructions for a given loop.  If the access addresses are same, a \textit{dependence pair} is found.  A dependence pair is defined as a tuple $(i_1,i_2)$ for a given loop where $i_1$ is the iteration ID of the store and $i_2$ is the iteration ID of the load. Note, $i_1$ is always less than $i_2$. Dependence pairs for that execution for that given loop are also kept.\\
+When the loop enters an iteration ID that just exceeds the sample size; the collection of dependence pairs are analyzed to find the dependence behaviour.  If there are no dependence pairs, that means there were no RAW dependences for that execution of the loop and the loop's parallel execution count is incremented.  If there are some dependence pairs, the loop was not parallel for that execution.  As seen in figure \ref{fig:indep_window}, strided memory access patterns are interesting cases for parallel execution. The function $check\_stride()$ checks if there was a strided dependence pattern. The function uses the state machine described in figure \ref{fig:stride} to find strided dependence.  First the function calculates a dependence distance (distance between the iteration id of the write and that of read) for a given dependence pair. \\
+Next the function checks for dependence pairs with the same dependence distance.  Every time such pair is encountered, a counter is increased.  If the counter value reaches a certain threshold (the threshold id set as 5) is reached, a strided dependence is reported, else the dependence becomes irregular. If there was a stride, the value of the stride is stored in the profile information, else the the loop has irregular dependence pattern. Also to reduce the search space, already visited dependence pairs are not searched again.\\
 
 \begin{figure}[h]
 \begin{center}
@@ -617,16 +557,14 @@ When the loop enters an iteration ID that just exceeds the sample size; the coll
 \end{figure}
 
 
-
-After analyzing and storing the dependence pattern in the memory for the given loop, all the data structures used in this execution of the loop is cleared so that they can be reused in the next run.  This is achieved by just clearing some counters, but not resetting the whole data structures.  Also the \textit{flag}, indicating that the dependence analysis is done, is set.
-
-\textit{int analyse\_and\_write(int loop)} is used for the loops whose iteration count is smaller than \textit{MAX\_ITERATIONS}.  This function is inserted at the exit block of the loop.  If the \textit{flag} indicating the dependence analysis is not set, then the function does the same operations as \textit{common()} does for iteration ids less than \textit{MAX\_ITERATIONS}.  Else the function just resets that flag for the next loop execution.  This function is useful for calculating dependence information for loops smaller than \textit{MAX\_ITERATIONS}.
-
+After analyzing and storing the dependence pattern in the memory for the given loop, all the data structures used in this execution of the loop is cleared so that they can be reused in the next run.  This is achieved by just clearing some counters, but not resetting the whole data structures.  Also the \textit{flag}, indicating that the dependence analysis is done, is set.\\
+\textit{int analyse\_and\_write(int loop)} is used for the loops whose iteration count is smaller than \\ 
+\textit{MAX\_ITERATIONS}.  This function is inserted at the exit block of the loop.  If the \textit{flag} indicating the dependence analysis is not set, then the function does the same operations as \textit{common()} does for iteration ids less than \textit{MAX\_ITERATIONS}.  Else the function just resets that flag for the next loop execution.  This function is useful for calculating dependence information for loops smaller than \textit{MAX\_ITERATIONS}.\\
 \textit{int write\_to\_file()}  is called only when the program exists.  If there is already a profile file, this function updates the file using the information from the current run.  Else, the function creates a new profile file \textit{llvmprof.out}.  Call to this function is only inserted before the \textit{return} instruction from \textit{main} and before the \textit{call} instruction to the \textit{exit} function.  This function helps in reducing the cost of reading the profile each time a loop terminates.
 
 \begin{algorithm}
 \begin{algorithmic}[1]
-\caption{Algorithm for the $common$ function}
+\caption{Algorithm for the $common$ function, the common function finds dependence pairs and also characterizes the dependence as one of- \textit{strided}, \textit{irregular} or \textit{no-dependence}}
 \label{alg:common_algo}
 \IF{$iteration\_id <= MAX\_ITERATIONS$}
 	\IF{data structures uninitialized}
@@ -715,7 +653,15 @@ The total size of the data structures remains fixed as they are initialized once
 
 \section{The Profile file}
 
-The profile file produced by the framework stores the dependence information for a number of executions for each loop. For each loop, the file stores the unique loop ID and the number of independent (parallel) and irregularly dependent executions.  The file also stores the discovered stride values in a histogram with five bins. 
+The profile file produced by the framework stores the dependence information for a number of executions for each loop. The combined profile file tries to capture as much dependence information as is necessary to perform a cost analysis to find speculation candidates.  There can be three types of dependences for a given loop.
+
+\begin{itemize}
+\item \textbf{No Dependence} If No dependence pairs are found for all the executions of the loop, the loop can safely be executed in parallel.
+\item \textbf{Irregular Dependence} If the dependence does not follow any pattern (the dependence pairs have varied dependence distances), the loop is hard to parallelize.
+\item \textbf{Strided Dependence} If the loop has a dependence with a stride value of 'n' (dependence is repeated for each 'n' iterations), every 'n' iterations of the loop can be executed in parallel, given the loop is doing significant work in those 'n' iterations to overcome the overhead from TLS.
+\end{itemize} 
+
+For each loop, the combined profile file stores the unique loop ID and the number of independent (parallel) and irregularly dependent executions.  The file also stores the different stride values in a histogram with five bins. 
 Figure \ref{fig:profile_file} shows a sample profile file.\\
 
 \begin{figure}[h]
@@ -727,15 +673,9 @@ Figure \ref{fig:profile_file} shows a sample profile file.\\
 \label{fig:profile_file}
 \end{figure}
 
-\chapter{Experimental Evaluation}
-
-This chapter describes the experimental evaluation of benchmarks using the LLVM compiler in the BlueGene/Q machine.  The initial experiments are done using the Polyhedral Dependence analyzer in LLVM, called \textit{Polly}.  First, using a simple heuristics, loops with \textit{may dependences} are allowed to speculatively execute in parallel with a hope to get performance improvement.  The heuristic is then modified to filter out cold loops and, with the help of profiling, loops where may dependences materialize at runtime.  The initial experimentation takes the sequential version of the program at the lowest optimization level and does not consider the effect of SIMDization or other loop transformation performed at higher levels of optimization.  A performance comparison with the automatic OpenMP parallelized code by Polly is also done.\\
-
-In the second set of experiments, the dependence analysis pass of LLVM was used and also the effect of higher optimization levels of the compiler and the effect of automatic SIMDization is studied.  A comparison among three parallel version of the code - SIMDized, automatic OpenMP parallelized and speculatively parallelized is also done. The benchmarks chosen were the ones used in TLS literature before.
-
 \section{Variability of Loops' Dependence Behaviour based on Inputs}
 
-One important finding of this research is that the dependence behaviour of loops that has the properties to be speculation candidates, \textit{doesn't change} with respect to the different inputs to the program.  The dependence behaviour of loops from the benchmarks that were used in TLS research before (and are available) is observed for different inputs and \textit{there was not a single loop that has the specific properties for being a TLS candidate and whose dependence behaviour varies with different inputs}.  This finding allows to use a simple heuristic for selection of speculation candidates based on profiling.  If the loop is dependent, the loop is not speculated.  But if the loops is found to be independent, it is speculatively parallelized.  Still more speculation candidates are discovered using this heuristic because all of these candidate loops have \textit{may dependences} which prevents the compiler from parallelizing them.  Table~\ref{table:benchmarks_observed} gives the list of benchmarks that are investigated to find loops with varied dependence behaviour.\\
+One important finding of this research is that the dependence behaviour of loops that have the properties (as described is Section 4 of Chapter Background) to be speculation candidates, \textit{doesn't change} with respect to the different inputs to the program.  The dependence behaviour of loops from the SPEC2006, PolyBench/C and NAS benchmarks (as listed in  Table~\ref{table:benchmarks_observed}) is observed for different inputs and \textit{there was not a single loop that has the specific properties for being a TLS candidate and whose dependence behaviour varies with different inputs}. This finding allows the use of a simple heuristic for selection of speculation candidates based on profiling.  If the loop is dependent, the loop is not speculated.  If the loops is found to be independent, it is speculatively parallelized.  This invariability in the dependence behaviour also allows to use a single input for profiling and finding out TLS candidate loops.\\
 
 \begin{table}
 \centering
@@ -774,10 +714,40 @@ NAS & SP & NAS & UA  \\ \hline
 \label{table:benchmarks_observed}
 \end{table}
 
+\section{Benchmarks with loops that have varied dependence behaviour across inputs}
+
+In this section description of three different benchmarks, that have loops with varied dependence behaviour across different executions, are given.
+\begin{itemize}
+\item \textbf{2D-Hull:} The randomized incremental algorithm that builds the Convex Hull of a two-dimensional set of points is used. This algorithm, called 2D-Hull (due to Clarkson et al. [23]), computes the convex hull (smallest enclosing polygon) of a set of
+points in the plane. The input to Clarkson's algorithm is a set of (x, y) point coordinates. The algorithm starts with the triangle composed by the ﬁrst three points and adds points in an incremental way. If the point lies inside the current solution, it will be discarded. Otherwise, the new convex hull is computed. Note that any change to the
+solution found so far generates a dependence violation, because other successor threads may have been used the old enclosing polygon to process the points assigned to
+them.\\
+The probability of a dependence violation in the 2D-Hull algorithm depends on the shape of the input set. For example, if N points are distributed uniformly on a disk, the i-th iteration will present a dependence with probability in θ(√i/i). If points lie uniformly on a square, the probability of a dependence will be in θ(log(i)/i).
+
+\item \textbf{Delaunay triangulation:} The second application is the randomized incremental construction of the Delaunay triangulation using the Jump-and-Walk strategy, introduced by Mucke et al. [24], [25]. This incremental strategy starts with a number of points, called anchors, whose containing triangles are known. \\
+The algorithm ﬁnds the closest anchor to the point to be inserted (the jump phase), and then traverses the current triangulation until the triangle that contains the point to
+be inserted is found (the walk phase). After this location step, the algorithm divides this triangle into three new triangles, and then updates the surrounding edges to
+keep the Delaunay properties.\\
+This local modiﬁcation to the current Delaunay solution may lead to dependence
+violations, since other threads may have traversed the old solution while trying to add new points. The shared data access pattern of the Delaunay algorithm is fundamentally different than the one of the 2D-Hull. In the Delaunay algorithm all threads modify the
+speculative solution, not only a subset of them. However, despite these modiﬁcations, successor threads do not need to be squashed if their own work is carried out
+in a different zone of the triangulation.\\
+The expected amount of dependence violations generated by the Delaunay Triangulation depends on the number of processors and the length of the traversing path. It is easy to see that, the shorter the distance between the closest anchor and the point to be inserted, the fewer triangles that are visited in the walk and the smaller the probability of a dependence violation. This fact suggests that the algorithm should work with many anchors. However, the bigger the number of anchors, the more distance comparisons have to be performed to ﬁnd the closest anchor to our point, thus degrading sequential performance. Our implementation uses a number of anchors that represents a good balance between these effects for the input size used. Our implementation is
+composed by two loops: The ﬁrst one builds a Delaunay Triangulation of the ﬁrst 5 000 points, that will be used later as anchors, while the second loop inserts all the
+remaining points (up to one million). We have speculatively parallelized this second loop.
+\end{itemize}
+
+\chapter{A framework for automatic speculative parallelization of loops using polyhedral dependence analysis}
+\label{chapter:polly}
+
+\section{Introduction}
+
+The fact that loops' dependence behaviour does not change based on inputs for the benchmarks used in TLS literature, makes it easier to choose candidate loops for speculative execution. This chapter presents an automatic speculative parallelization framework built on \textit{Polly}~\cite{grosserImpact11}, the polyhedral optimizer in LLVM.  The framework uses Polly's dependence analyzer to find may dependences in the loops.  Two different heuristics are used to find speculation candidates. The first heuristic allows loops with only may dependences to run speculatively in parallel while the second heuristic filters out cold loops and, using profile information, loops with actual run time dependences. A performance evaluation of the speculative code generated by the framework over the sequential version at the lowest optimization level (-O0) for the SPEC2006 and PolyBench/C benchmarks is presented.
+
 \section{Speculative Parallelization using the polyhedral dependence analyzer of LLVM}
 \label{section:heuristics}
 
-For the initial experimentation, the following two heuristics are used.  
+This section describes the two heuristics used by the framework to find speculation candidate loops.  
 
 \subsection{Heuristic 1}
 
@@ -788,26 +758,35 @@ According to the first heuristic,  for being a speculation candidate a \textit{S
 Heuristic 1 allows loops with \textit{may dependences} to execute in parallel.  There can be two cases where the overhead of speculation can still negate the gain from parallelism. In heuristic 2, the two criteria for filtering are based on two different overheads. The first criteria considers the overhead from mispeculation and recovery while the second criteria considers the overhead from thread creation and storing the program state so that the system can be rolled back to a consistent state in case of mispeculation.  In this way loops that can not be benefited from SE are filtered. 
 
 \begin{enumerate}
-\item In the loops where \textit{Polly} reports only \textit{may dependences}, the memory accesses are profiled for a training run for some inputs.  If the training run shows that the \textit{may dependences} are materializing into \textit{true dependence}(Here true dependence means dependence occurring at run time, not \textit{read after write} (RAW) dependence) at run time, the loop is not parallelized.
-\item If the execution time of the loop is less than some threshold as compared to the total execution time of the program, the loop also is not speculatively parallelized.  As in this case, the overhead from speculation can neutralize or worse, negate the gain from parallelism. This threshold is set as 20\% of the total execution time because experimental evaluation shows that allowing  the speculative execution of smaller loops for the benchmarks leads to slowdown. 
+\item In the loops where \textit{Polly} reports only \textit{may dependences}, the memory accesses are profiled for a training run for some inputs.  If the training run shows that the \textit{may dependences} are materializing into \textit{actual dependences} at run time, the loop is not parallelized.
+\item If the execution time of the loop is less than some threshold as compared to the total execution time of the program, the loop also is not speculatively parallelized.  As in this case, the overhead from speculation can neutralize or, worse, negate the gain from parallelism. This threshold is set as 20\% of the total execution time because experimental evaluation shows that allowing  the speculative execution of smaller loops for the benchmarks leads to slowdown. 
 \end{enumerate}
 
 \section{The Framework for Polly}
 \label{section:framework}
 
-The framework is implemented in the LLVM ~\cite{llvm} compiler infrastructure. Polyhedral dependence analysis is already implemented as a part of the LLVM project and it is called \textit{Polly}.~\cite{grosserImpact11} \\
+The framework is implemented in the LLVM~\cite{llvm} compiler infrastructure. Polyhedral dependence analysis is already implemented as a part of the LLVM project and it is called \textit{Polly}~\cite{grosserImpact11}. \\
+
+\begin{figure}[h]
+\begin{center}
+\scalebox{0.35}{ \includegraphics{./pdf/framework.pdf}}
+\renewcommand{\figure}{Fig.}
+\caption{ The Framework}
+\end{center}
+\label{fig:framework_polly}
+\end{figure}
 
 First the source-code file to be optimized is compiled with LLVM keeping the debug information in the bitcode (with -g option). The debug information is necessary for source-code instrumentation.  Two LLVM passes are run on the generated bitcode. The \textit{printBlocks} pass prints out all the basic blocks in the source file and their corresponding file name and line numbers.\\
 
-Polly's dependence analysis pass \textit{Polly}-\textit{dependences} is also run on the bitcode.  This pass provides information about the SCoPs and the \textit{may} and \textit{must dependences} in them.  This dependence information is extracted from the output and kept into temporary storage.  An analyzer program takes the information generated by the above two passes as input, performs a three-way mapping (SCoPs with basic block information, basic block with file name and line numbers information and SCoPs and dependence information), performs analysis based on which heuristic to use and spits out information about the file names and line numbers where the speculative \textit{pragmas} to be inserted. A script is run that reads the file name and line numbers and instruments the code accordingly.  For the benchmarks tested, the number of loops never exceeds 6000 (the maximum number of candidate loops for speculation are much less than that) and the temporary storage necessary was less than 5 MB.\\
+Polly's dependence analysis pass \textit{Polly}-\textit{dependences} is also run on the bitcode.  This pass provides information about the SCoPs and the \textit{may} and \textit{must dependences} in them.  This dependence information is extracted from the output and kept into temporary storage.  An analyzer program takes the information generated by the above two passes as input, performs a three-way mapping (SCoPs with basic block information, basic block with file name and line numbers information and SCoPs and dependence information), performs analysis based on which heuristic to use and outputs information about the file names and line numbers where the speculative \textit{pragmas} can be inserted. A script is run that reads the file name and line numbers and instruments the code accordingly.  For the benchmarks tested, the number of loops never exceeds 6000 (the maximum number of candidate loops for speculation are much less than that) and the temporary storage necessary was less than 5 MB.  Figure~\ref{fig:framework_polly} describes the framework.\\
 
 The instrumented source code is then compiled with the \textit{bgxlc\_r} (\_r option generates thread-safe code. \textit{bgxlc} is the IBM xlc compiler specific for the BlueGene/Q machine) compiler to generate the executable that can be run on the BlueGene/Q ~\cite{BGQ} machine.  The framework is fully automatic.
 
 \section{Experimentation}
 
-Experimentation is performed on two different set of benchmarks - SPEC2006 benchmarks~\cite{spec}  and the PolyBench/C benchmarks~\cite{polybench}.  SPEC2006 is chosen because it has been used by other researchers for the evaluation of speculative execution. All the SPEC2006 benchmarks are not reported because some of them don't run successfully on BlueGene/Q.  PolyBench/C benchmarks are chosen because they are suitable benchmarks for polyhedral analysis.  Table \ref{table:bgq_config} shows the hardware details of a BlueGene/Q chip. \\
+Experimentation is performed on two different sets of benchmarks - SPEC2006 benchmarks~\cite{spec}  and the PolyBench/C benchmarks~\cite{polybench}.  SPEC2006 is chosen because it has been used by other researchers for the evaluation of speculative execution. All the SPEC2006 benchmarks are not reported because some of them don't run successfully on BlueGene/Q.  PolyBench/C benchmarks are chosen because they are suitable benchmarks for polyhedral analysis.  Table \ref{table:bgq_config} shows the hardware details of a BlueGene/Q chip. \\
  
-The SPEC2006 benchmarks are run with the \textit{ref, train and test} input and the PolyBench/C benchmarks are run using varied problem size.  For calculating the speedups, each benchmark is run 10 times for a given input and the average running time from the 10 runs were taken. Also the 95\% confidence interval is shown in the bar chart for the 10 runs.\\
+The SPEC2006 benchmarks are run with the \textit{ref, train and test} input and the PolyBench/C benchmarks are run using varied problem size.  For calculating the speedups, each benchmark is run 15 times for a given input and the average running time from the 15 runs were taken. For runs with profiling, there are three groups of 5 runs and for each group, the input for the profiling run is different from the input for the measurement run. Also the 95\% confidence interval is shown in the bar chart for the 15 runs.\\
 
 Instrumentation in the source code is done automatically following the information file generated by the framework.  The \textit{\#pragma speculative for} pragma from the IBM \textit{bgxlc\_r} compiler was used for speculative execution of loops.  This pragma divides the iterations of a loop into chunks of size
 $ceiling(number\_of\_iterations/number\_of\_threads)$. \\
@@ -837,7 +816,7 @@ Chip-to-chip networking & 5D Torus topology + external link \\ \hline
 \section{Results}
 \label{section:results}
 
-This section describes the experimental results for the initial experimentation.  First the effect of heuristic 1 on the SPEC2006 and the PolyBench/C benchmarks is described.  Then a comparison is made between OpenMP parallelization and the parallelization done by the framework following heuristic 1.  After that the effect of heuristic 2 is shown.  The scalability of the TLS parallelization is also shown.
+This section describes the experimental results for the experimentation with \textit{Polly}.  First the effect of heuristic 1 on the SPEC2006 and the PolyBench/C benchmarks is described.  Then a comparison between OpenMP parallelization and the parallelization done by the framework following heuristic 1 is presented.  The effect of heuristic 2 on the two sets of benchmarks is also shown.  Results show that data dependence profiling is necessary because in benchmarks like \textit{sjeng}, may dependences materialize during runtime and cause a slowdown. The results also show that speculatively parallelizing loops that have poor coverage (percentage of the whole program execution time) results in slowdown for benchmarks like \textit{fdtd-2d}, \textit{jacobi}, \textit{lu}, \textit{seidel}, \textit{cholesky}, \textit{dynprog}, \textit{gramschmidt}, \textit{gobmk}.  Applying heuristic 2 to filter out loops with actual dependences and cold loops (less than 20\% coverage) gives performance improvement over automatic OpenMP parallelizer of \textit{polly} for \textit{gramschmidt} and \textit{sjeng}.
 
 \subsection{Heuristic 1}
 
@@ -852,11 +831,8 @@ This section describes the experimental results for the initial experimentation.
 \end{figure*}
 
 In Figure~\ref{fig:speedup_spec2006}, most of the SPEC2006 benchmarks achieve a speedup over the optimized sequential version.  \textit{lbm} contains loops with no inter-thread data dependences, but these dependences are not statically provable by the compiler and that's why they are not parallelized by OpenMP. This benchmark can be greatly benefited by the speculative execution and obtains the highest speedup because these dependence don't materialize at run time.\\
-
 \textit{gobmk} has many loops with small iteration counts. Small loops are not good candidates for speculative execution because the thread creation overhead negates the impact of parallel execution and we get a slowdown. These loops are later filtered out by heuristic 2.\\
-
 \textit{sjeng} contains loops those are reported as speculation candidates by heuristic 1 because of the occurrence of \textit{may dependences}.  But these dependences actually occur at run time and the overhead from mispeculation prevents this benchmark from achieving speedup.  These loops are not suited for speculative execution and they are eliminated by heuristic 2.\\
-
 Overall, heuristic 1 performs well for most of the SPEC2006 benchmarks.  A 4x speedup is achieved for \textit{lbm} benchmark on a 8-node cluster. 
 
 \begin{figure}[h]
@@ -869,13 +845,11 @@ Overall, heuristic 1 performs well for most of the SPEC2006 benchmarks.  A 4x sp
 
 \subsubsection{PolyBench/C Benchmarks}
 
-The speedups reported in Figure~\ref{fig:speedup_polybench} indicate that the  PolyBench/C programs can be divided into two classes according to the effectiveness of thread-level speculation. Class 1 contains programs\textit{ 2mm, 3mm, correlation, covariance, doitgen, gemm} that achieves speed up on a speculative execution and Class 2, containing \textit{gramschmidt, jacobi-2d-imper, lu, ludcmp, seidel} experiences a slow down.  In the Class 2 PolyBench/C programs the loops parallelized are very small and constitutes a very small portion of the overall program execution (mainly initialization arrays).\footnote{These results confirm the finding of Kim et al.~\cite{KimCGO12}}  Therefore the overhead for thread creation in the speculative execution negates the performance achieved from the parallel execution of these loops. Table \ref{table:poly_coverage} shows the percentage of the whole program execution time the parallelized loops take for the PolyBench/C benchmarks. For \textit{seidel} the coverage is only 0.04\% and therefore the loops are not good speculation candidates for this benchmark.  The cold loops are eliminated by heuristic 2.
-
+The speedups reported in Figure~\ref{fig:speedup_polybench} indicate that the  PolyBench/C programs can be divided into two classes according to the effectiveness of thread-level speculation. Class 1 contains programs\textit{ 2mm, 3mm, correlation, covariance, doitgen, gemm} that achieves speed up on a speculative execution and Class 2, containing \textit{gramschmidt, jacobi-2d-imper, lu, ludcmp, seidel} experiences a slow down.  In the Class 2 PolyBench/C programs the loops parallelized are very small and constitutes a very small portion of the overall program execution (mainly initialization arrays).\footnote{These results confirm the finding of Kim et al.~\cite{sd3}}  Therefore the overhead for thread creation in the speculative execution negates the performance achieved from the parallel execution of these loops. Table \ref{table:coverage_1} shows the percentage of the whole program execution time the parallelized loops take for the PolyBench/C benchmarks. For \textit{seidel} the coverage is only 0.04\% and therefore the loops are not good speculation candidates for this benchmark.  The cold loops are eliminated by heuristic 2.
 
 \subsection{Comparison with OpenMP Parallelization}
 
-Heuristic 1 relaxes the constraint of OpenMP parallelization and allows loops with \textit{may dependences} and no \textit{must dependences} to speculatively run in parallel too.  As seen in Table ~\ref{table:openmp_vs_spec_poly}, heuristic 1 is able to find more parallelization candidates than OpenMP parallelization for the PolyBench/C benchmarks.  Figure~\ref{fig:openmp_vs_spec_poly} shows the speedup gained from OpenMP parallelization and speculative parallelization for the PolyBench/C benchmarks.  For \textit{2mm} and \textit{3mm}, speculative optimization does not give better speedup because no new loops are discovered by the framework.  For the last five benchmarks, OpenMP performs better than speculative optimization because the loops parallelized by heuristic 1 in the benchmarks are pretty small and they take very small portion of the benchmark execution time.  Therefore executing them speculatively causes the overhead from TLS to negate the gain from parallel execution.  The slowdown in these benchmarks are the motivation for heuristic 2.\\
-
+Heuristic 1 relaxes the constraint of OpenMP parallelization and allows loops with \textit{may dependences} and no \textit{must dependences} to speculatively run in parallel too.  As seen in Table ~\ref{table:coverage_1}, heuristic 1 is able to find more parallelization candidates than OpenMP parallelization for the PolyBench/C benchmarks.  Figure~\ref{fig:openmp_vs_spec_poly} shows the speedup gained from OpenMP parallelization and speculative parallelization for the PolyBench/C benchmarks.  For \textit{2mm} and \textit{3mm}, speculative optimization does not give better speedup because no new loops are discovered by the framework.  For the last five benchmarks, OpenMP performs better than speculative optimization because the loops parallelized by heuristic 1 in the benchmarks are pretty small and they take very small portion of the benchmark execution time.  Therefore executing them speculatively causes the overhead from TLS to negate the gain from parallel execution.  The slowdown in these benchmarks are the motivation for heuristic 2.\\
 Most of the time the framework outperforms OpenMP for the SPEC2006 benchmarks, as can be seen in Figure~\ref{fig:openmp_vs_spec}.
 
 \begin{table}
@@ -926,7 +900,6 @@ fdtd\_2d & 14 & 2 & 0 & - \\ \hline
 \subsubsection{Profiling and Filtering hot loops}
 
 To tackle the slowdowns, the reported \textit{may dependences} are profiled to see whether the dependences occur at run time. Also the loops that does not take significant amount of the program execution time were not speculatively parallelized because they negate the gain of parallelization due to thread creation overhead. \\
-
 The results shown in Figure~\ref{fig:heu2} indicate that the benchmarks that were experiencing slowdown as compared to OpenMP performs equal or better  when heuristic 2 is used. \textit{Gramschmidt} and \textit{sjeng} performs better than OpenMP as the overhead from parallelizing small loops goes away.  This indicates that by extending heuristic 1, equal or better performance can be achieved as compared to OpenMP.
 
 \begin{figure}
@@ -936,12 +909,24 @@ The results shown in Figure~\ref{fig:heu2} indicate that the benchmarks that wer
 \label{fig:heu2}
 \end{figure}
 
-\section{Going Further: Using LLVM's New Dependence Analysis and Comparison with AutoSIMD and AutoOpenMP by the xlc compiler}
+In the next chapter, the framework takes the dependence analysis results from the built-in static dependence analyzer of LLVM in stead of the results from \textit{polly} .  The chapter also presents a performance comparison among the automatically SIMDized, automatically OpenMP parallelized code by IBM's \textit{xlc} compiler and speculatively parallelized code by the framework for the SPEC2006 and PolyBench/C benchmarks, using sequential code compiled with the highest optimization level (-O5).
 
-For the next set of experiments, the effect of higher optimization levels of the \textit{bgxlc\_r} compiler is observed.  The optimization level used in both the sequential and parallel version is -O5.  By default -O5 level turns on the automatic vectorization (SIMDization) and the various optimizations of hot loops (e.g. loop unrolling etc.).  \\
+\chapter{Going further:Effect of Higher Optimization Levels of the Compiler and Combining Profiles}
+\label{chapter:O5}
 
-Also as LLVM's dependence analysis pass has been improved by the time these experiments are performed, the result from the dependence analysis pass is used for profiling.  The SPEC2006 and PolyBench/C benchmarks are used for experimentation.
+\section{Introduction}
 
+The higher optimization levels of the compiler can give many-fold better performance than the sequential code optimized at the lowest level (-O0).  To obtain maximum performance gain from the compiler optimizations, programmers typically use the highest optimization level of a given compiler (e.g. -O5 for IBM's \textit{xlc} compiler, -O3 for \textit{gcc}).\\
+To exploit the available parallelism from the programs, different automatic parallelization techniques like automatic OpenMP, automatic SIMDization etc. are used by programmers.  This chapter explores the opportunities of extracting more parallelism from the program using TLS.  The dependence analyzer from LLVM is used to find may dependences inside loops.  A performance comparison of three parallel versions of the code - 1. code generated by the existing automatic OpenMP and 2. SIMD parallelizer of the \textit{xlc} compiler and 3. the speculatively parallel code generated by the framework is presented.  Results show that for some benchmarks (\textit{namd}, \textit{mcf}, \textit{lbm}), TLS gives better performance while for some benchmarks, TLS experiences a performance degradation due to various reasons like - increase in L1 cache misses (\textit{sjeng}, \textit{cholesky}, \textit{dynprog}), instruction path length increase (\textit{jacobi}, \textit{seidel}), misspeculation due to dependences resulting from function calls (\textit{sjeng}, \textit{h264ref}).
+
+\section{Experimental Evaluation}
+
+This section describes the performance evaluation after applying profile-driven TLS to the SPEC2006 and PolyBench/C benchmarks using the LLVM compiler, the BlueGene/Q machine being the platform.  The dependence analysis pass of LLVM is used and the effect of higher optimization level (-O5) of the compiler is observed.  A comparison among three parallel version of the code - SIMDized, automatic OpenMP parallelized and speculatively parallelized is also performed. The benchmarks chosen are widely used in TLS literature.
+
+\section{Comparison with AutoSIMD and AutoOpenMP by the bgxlc\_r compiler}
+
+In this set of experiments, the effect of higher optimization levels of the \textit{bgxlc\_r} compiler is observed.  The optimization level used in both the sequential and parallel version is -O5.  By default -O5 level turns on the automatic vectorization (SIMDization) and the various optimizations of hot loops (e.g. loop unrolling etc.).  \\
+Also as LLVM's dependence analysis pass has been improved by the time these experiments are performed, the result from the dependence analysis pass is used for profiling.  The SPEC2006 and PolyBench/C benchmarks are used for experimentation.\\
 The baseline for comparison for these set of experiments is the sequential version of the code optimized at the highest level (-O5) with the automatic vectorization and optimization of hot loops turned off.  Comparison is made with three parallel versions of the code.  The automatic SIMDized code, the automatic OpenMP parallelized code and the speculative parallel code generated by the framework.  The following compiler options are used to generate the sequential and the three parallel versions of the code. \\
 
 \begin{itemize}
@@ -951,9 +936,7 @@ The baseline for comparison for these set of experiments is the sequential versi
 \item \textbf{Speculative parallelized version:} bgxlc\_r -O5 -qsimd=auto -qhot -qsmp=auto:speculative -qstrict
 \end{itemize}
 
-The \-qstrict compiler option is used to maintain the correct semantics of the program after higher level optimizations.  Because, the higher level optimizations may alter the semantics of the program. \\
-
-\subsubsection{SPEC2006}
+The \-qstrict compiler option is used to maintain the correct semantics of the program after higher level optimizations because the higher level optimizations may alter the semantics of the program. \\
 
 \begin{figure}[h]
 \centering
@@ -962,11 +945,13 @@ The \-qstrict compiler option is used to maintain the correct semantics of the p
 \label{fig:speedup_O5}
 \end{figure}
 
-Figure~\ref{fig:speedup_O5} gives the speedup obtained from different parallelization of the SPEC2006 benchmarks with the optimized sequential version as baseline. The performance improvement of speculative parallelization over the sequential version optimized at the highest level (-O5) is much less than what was achieved over the sequential version with no optimization (-O0). \\
-
-As seen in the figure, \textit{milc} and \textit{namd} shows similar trends with the three types of parallelization.  The SIMDized version performs better than the optimized sequential version, OMP and speculative execution keep performing better as they are applied to the code.  For \textit{hmmer} and \textit{mcf}, the SIMDization does not improve the performance but still these two benchmarks get some performance improvement while OMP and speculative parallelization is applied. \textit{sphinx3} does not get any improvement for SIMDization, but OpenMP helps here while speculative parallelization does not.  For \textit{bzip2}, OpenMP does not help over SIMD, but speculative parallelization helps.  \textit{gobmk} is a benchmark which does not experience an improvement for any of these parallelization techniques in BG/Q. This is because no new speculative loops are discovered due to filtering out loops with less than 20\% coverage.  \textit{h264ref} and \textit{sjeng} are two benchmarks where OMP helps but speculative execution negates the performance improvement by OpenMP and results in a slowdown.
-
-\subsubsection{PolyBench/C}
+Figure~\ref{fig:speedup_O5} gives the speedup of three parallel versions of the SPEC2006 benchmarks over the sequential version.  As seen in the figure, there are three classes of benchmarks - benchmarks that achieve performance improvement for applying TLS (milc, lbm, bzip2, mcf, namd, hmmer), benchmarks that does not get performance improvement (sphinx3, gobmk) and benchmarks that get a performance degradation after applying TLS (h264ref, sjeng).  \\
+Figure~\ref{fig:poly_O5} gives the speedup of the PolyBench/C benchmarks. There are also three classes of benchmarks. lu and gemm gets a performance improvement from TLS while jacobi and dynprog experience slowdown.  Performance does not improve by applying TLS to \textit{2mm}, \textit{3mm}, \textit{fdtd-2d}, \textit{gramschmidt} and \textit{seidel}.\\
+One of the reasons for performance improvement are the number of parallelized loops and their coverage (percentage of the loops' execution time with respect to the whole program execution time).  There is limited performance improvement due to TLS for loops that do not have good coverage because of thread creation overhead. bzip2, sjeng are examples of programs that contain speculative loops with poor coverage. \\
+Increase in L1 cache misses due to TLS is another reason that limits performance.  In BG/Q, for short-running mode, the L1 cache is flushed before entering any speculative region thus affecting speculative regions with data locality.  Benchmarks such as cholesky and dynoprog suffer from the flush-effect of TLS.\\
+The saving of register context before entering in a speculative region, obtaining a speculative ID etc. accounts for the TLS overhead that is reflected in the instruction path length increase.  jacobi and seidel are two benchmarks that experience a huge path length increase thus limiting/degrading their performance.
+The rest of the section explains in details the sources
+of BG/Q TM overhead.
 
 \begin{figure}[h]
 \centering
@@ -975,11 +960,10 @@ As seen in the figure, \textit{milc} and \textit{namd} shows similar trends with
 \label{fig:poly_O5}
 \end{figure}
 
-Figure~\ref{fig:poly_O5} gives the effect of different parallelization techniques on the PolyBench/C benchmarks. There is not much improvement from speculative execution for most of the benchmarks other than \textit{gemm} and \textit{lu}. SIMDization and OMP parallelization improves the performance of \textit{gemm} more than 2.5 fold on 4 threads.  For \textit{lu}, the performance improvement is not much promising. \textit{2mm} and \textit{3mm} are benchmarks which performs 2D and 3D matrix multiplication and therefore, TLS is not able to discover new candidate loops for speculation.  SIMD and OMP parallelization achieves good performance improvement already for these two benchmarks as expected. \textit{ jacobi, seidel, cholesky} and \textit{dynprog} experiences slowdown for executing loops speculatively.  The reasons for this slowdown is investigated and explained later.  But this slowdown is not from the execution of colder loops as was seen on the previous experiments with \textit{polly}.  Because the cold loops are already eliminated..  \textit{fdtd-2d} and \textit{gramschimidt} are two benchmarks that do not benefit from any of the three parallelization techniques.
 
 \subsubsection{Investigation of Performance Improvement or Degradation}
 
-The following sets of experiments were performed to investigate the reason of performance improvement or degradation due to different parallelization techniques for the SPEC2006 and PolyBench/C benchmarks.  First the number of loops parallelized and their coverage are calculated.  Next, the misspeculation overhead of the speculatively parallelized versions are investigated to find the reasons of slowdown.  After that, the L1 cache miss rate of the sequential and different parallel versions of the code are calculated using Hardware Performance Monitors (HPM).  Also the instruction path length increase of the parallel versions of the code with respect to the sequential version is calculated.
+The following set of experiments were performed to investigate the reason of performance improvement or degradation due to different parallelization techniques for the SPEC2006 and PolyBench/C benchmarks.  First the number of loops parallelized and their coverage are measured.  Next, the misspeculation overhead of the speculatively parallelized versions are measured in terms of the number of threads squashed due to dependence violation. The L1 cache miss rate of the sequential and the three parallel versions of the code are measured using BG/Q Hardware Performance Monitors (HPM).  Also the instruction path length increase of the parallel versions of the code with respect to the sequential version is calculated.
 
 \subsubsection{Number of loops parallelized and their coverage}
 
@@ -1012,19 +996,17 @@ fdtd\_2d & 14 & 3 & 0 & 0 & 21 \\ \hline
 \label{table:coverage_2}
 \end{table}
 
-Table~\ref{table:coverage_2} gives the number of parallelized loops by the three different parallelization techniques and their coverage for the SPEC2006 and PolyBench/C benchmarks.  It is clear from the numbers that more number of loops are parallelized for the OMP and speculative parallelization of all these benchmarks than the initial experimentation with \textit{polly}.  The coverage of the parallelized loops are more than 20 percent of the whole program execution time.  The reason for the more number of loops parallelized than the experiments with \textit{polly} is - \textit{polly} only reports loops that are SCoPs.  For being a SCoP, the loop has to have some specific properties that prevents some loops from consideration.  But in the later experiments, the dependence analysis result from LLVM was taken for profiling.  Therefore, the number of loops profiled increased which in turn increased the number of loops reported to be beneficial based on the selection criteria.  \\
-
-The number of loops parallelized by the auto-openmp parallelization in the \textit{bgxlc\_r} compiler is also greater than the number of loops parallelized by \textit{polly} using the polyhedral dependence analysis because \textit{polly} is only considering SCoPs where \textit{bgxlc\_r} is taking all loops (non SCoPs as well) while performing analysis.\\
-
-There is one more relaxation than a conservative analysis for finding the speculation candidates.  Loops with function calls inside them are also considered to be speculatively parallel even if the function call is guaranteed to introduce some dependency inside the loop.  The reason for this relaxation is it is difficult to perform an inter-procedural dependence analysis with the help of profiling.  A more conservative compiler will not consider a loop for speculation if there is a function call inside the loop body and the function is not side-effect free. \\
-
-The interesting benchmark in table~\ref{table:coverage_2} is \textit{h264ref} because it has the most number of speculatively parallelized loops with good coverage than any other but still it experiences a slowdown due to speculative execution.  For \textit{milc} the number of speculative loops is better than most other benchmarks but the loops does not have a high coverage that can account for the speedup from TLS.  Also the coverage of the speculative loops in \textit{sjeng} is on the lower side which adds to the TLS thread creation overhead and contributes to its slowdown.  The number of loops speculated for \textit{lbm} is small but they take most of the execution  time.  These hot loops of \textit{lbm} are good speculation candidates and are examples of cases where TLS can be beneficial.  \textit{namd} also have decent number of speculated loops with a good coverage which contributes to the speed up from TLS.  \textit{bzip2} also has a small number of loops that does not have good coverage, so the speed up achieved for this benchmark from TLS is not from coverage and the number of speculative loops. \textit{gobmk} does not have any parallelizable loops.  This explains the same performance of \textit{gobmk} parallel versions with the sequential version. \\
-
-For PolyBench/C benchmarks, \textit{2mm} and \textit{3mm}, no new speculation candidates were discovered because they are matrix multiplication benchmarks and OpenMP already does a good job parallellizing perfectly parallel loops. For \textit{gemm}, the speculatively parallel loops has a very good coverage that supports the performance improvement from TLS.  For \textit{cholesky}, \textit{dynprog} and \textit{fdtd-2d} the loops paralleized have poor coverage.  This is one of the reasons that accounts for the performance degradation for these benchmarks. \textit{gramschmidt} does not have any new speculative loops discovered because of the filtering criteria of loops with less than 20\% coverage.
+Table~\ref{table:coverage_2} gives the number of parallelized loops by the three different parallelization techniques and their coverage for the SPEC2006 and PolyBench/C benchmarks.  As seen in the table, more loops are parallelized by the automatic OpenMP and speculative parallelization of benchmarks than by \textit{polly}.  The threshold to consider a loop \textit{cold} is still 20\% of the whole program execution time.  More loops are parallelized because \textit{polly} only reports loops that are SCoPs.  For being considered as a SCoP, the loop has to have some specific properties.  These properties prevent \textit{polly} from reporting several loops.  In the later experiments, the dependence analysis results from LLVM are observed and the \textit{may dependent} memory accesses are instrumented for profiling.  Therefore, the cardinality of the set of loops profiled increases that results in an increase in the number of loops reported to be beneficial based on the speculative candidate loop selection criteria.\\
+The number of loops parallelized by the auto-OpenMP parallelization in the \textit{bgxlc\_r} compiler is also greater than the number of loops parallelized by \textit{polly} using the polyhedral dependence analysis because \textit{polly} only considers SCoPs where \textit{bgxlc\_r} takes all loops (non SCoPs as well) while performing the dependence analysis.\\
+Apart from including non-SCoPs, there is one more relaxation for finding the speculation candidates.  Loops with function calls inside their body are considered to be speculatively parallel if the all the memory accesses (apart from the function call) inside the loop body are independent.  Even if the function call introduces dependency inside the loop, that dependency is not checked.  The reason for this relaxation is - it is difficult to perform an inter-procedural dependence analysis with the help of profiling.  A more conservative compiler does not consider a loop as a candidate for speculation if there is a function call inside the loop body and the function is not side-effect free. \\
+The interesting benchmark in table~\ref{table:coverage_2} is \textit{h264ref} because it has the highest number of speculatively parallelized loops with good coverage than any other benchmark but still it experiences a slowdown due to speculative execution, as seen in figure~\ref{fig:speedup_O5}.  The reason for this slowdown in investigated further. \\ \textit{milc} has a large number of speculative loops that do not have a high coverage and the performance improvement from TLS execution is limited by this fact.  The coverage of the speculative loops in \textit{sjeng} is low and the poor coverage introduces TLS thread creation overhead that in turn results in a slowdown.  The number of loops speculatively parallelized for \textit{lbm} is small but they take a significant portion of the whole program execution time (98\%).  These hot loops of \textit{lbm} are good speculation candidates and are examples of cases where TLS can be beneficial. \\ \textit{namd} have decent number of speculated loops with a good coverage which contributes to the speed up from TLS.  \textit{bzip2} has a small number of loops that does not have good coverage, therefore asking for investigation of other reasons for the perfromance improvement of this benchmark. \textit{gobmk} does not have any parallelizable loops for either SIMDization, automatic OpenMP and TLS parallelization. Therefore the benchmark takes the same time as the optimized sequential version, as seen in figure~\ref{fig:speedup_O5}. \\
+For PolyBench/C benchmarks, \textit{2mm} and \textit{3mm}, no new speculation candidate loops are discovered than automatic OpenMP parallelization because these benchmarks are matrix multiplication benchmarks that contain large parallelizable loops.  These loops are parallelized by automatic OpenMP parallelizer. For \textit{gemm}, the speculatively parallel loops have good coverage that accounts for the performance improvement from TLS.  For \textit{cholesky}, \textit{dynprog} and \textit{fdtd-2d} the loops paralleized have poor coverage that results in a performance degradation. \textit{gramschmidt} does not have any speculative loops discovered because the \textit{cold} loops (less than 20\% coverage) that are parallelized by the \textit{polly} framework are filtered out.
 
 \subsubsection{Misspeculation Overhead}
+\label{sec:mispeculation}
+Squashing of threads with dependence and re-execution the parallel section sequentially imposes overhead that results in performance degradation of programs.  For speculatively parallelizing loops with function calls, new dependences may be introduced that lead to dependence violation and thread squashing.  The measurement of misspeculation overhead identifies loops inside benchmarks where function calls introduce actual dependences during run-time.\\
+To measure the misspeculation overhead, the percentage of successfully committed threads are computed.  The \textit{se\_print\_stats} function from the \textit{speculation\.h} header file in BG/Q is used to collect various statistics for a speculative region including the number of successfully committed/non-committed threads.  The \textit{se\_print\_stats} function is inserted before and after each speculative loop.  An environment variable can be set to print the statistics either after each speculative regions or from all the speculative regions at the end of the program.  The percentage of speculative threads committed is computed using the following equation:
 
-To calculate the misspeculation overhead, the percentage of successfully committed threads are computed for the benchmarks.  The \textit{se\_print\_stats} function from the \textit{speculation\.h} header file is used to collect this statistics.  The \textit{se\_print\_stats} function has to be inserted before and after each speculative loops.  An environment variable can be set to different values to print the statistics after each speculative regions or print the statistics from all the speculative regions at the end of the program.  To percentage of speculative threads committed is computed as -
 \begin{equation}
  \frac{speculative }{\left ( speculative + non\_speculative \right )}\ast 100
 \end{equation}
@@ -1058,17 +1040,18 @@ fdtd\_2d & 68 \\ \hline
 \label{table:spec_committed}
 \end{table}
 
-Misspeculation percentage gives the amount of wasted computation for the speculative loops.  Typically a benchmark that can be benefited from TLS should have high percentage of successful completion of speculative threads. Table~\ref{table:spec_committed} gives the percentage of speculative threads committed for the SPEC2006 and PolyBench/C benchmarks.  The best TLS performance is given by \textit{lbm}.  For the two benchmarks \textit{sjeng} and \textit{h264ref} the percentage of speculative threads committed is pretty less giving an indication of a huge amount of wasted computation which resulted in their slowdown.  Closer investigation of these benchmarks reveal that most of the loops speculatively parallelized for these benchmarks contained function calls which resulted in a dependence and thus roll back.  Though \textit{h264ref} has the most number of loops speculatively parallelized, the presence of dependence resulted from function calls inside these loops causes the slowdown for the TLS execution.  Two techniques can be used here to overcome the overhead - 1. The compiler can be conservative and not allow loops with function calls inside them to be executed in parallel regardless of whether the function call changes the dependence behaviour of the loop.  But in that case, we might still miss some opportunities where the function call is harmless.  2. A more sophisticated inter-procedural dependence analysis technique which is able to tell if the function call changes the dependence behaviour of the loop.\\
-
-\textit{mcf}, \textit{hmmer}, \textit{milc}, \textit{namd} and \textit{bzip2} do not have a high percentage of successful speculative execution as \textit{lbm}. This explains the small performance improvement over OpenMP parallelization for these benchmarks as compared to \textit{lbm}. \\
-
-Among the PolyBench/C benchmarks, \textit{gemm} and \textit{lu} has high percentage of speculative thread completion that explains their speedups.  For the four benchmarks - \textit{jacobi}, \textit{seidel}, \textit{cholesky}, \textit{dynprog} there is high percentage of thread completion that does not support the slowdown of these benchmarks.  The reasons of performance degradation for these four benchmarks is investigated further.
+The percentage of successfully committed threads gives an idea about the amount of wasted computation for the speculative loops.  Ideally a benchmark that can be benefited from TLS should have high percentage of successful completion of speculative threads. Table~\ref{table:spec_committed} gives the percentage of speculative threads committed for the SPEC2006 and PolyBench/C benchmarks.  The best TLS performance in terms of successful thread completion is given by \textit{lbm}.  For \textit{sjeng} and \textit{h264ref} the percentage of speculative threads committed is pretty less giving an indication of a huge amount of wasted computation that result in their slowdown.  Closer investigation of these benchmarks reveal that most of the loops speculatively parallelized contains function calls that result in a dependence and thus cause a roll back.  Though \textit{h264ref} has the most number of loops speculatively parallelized, the presence of dependence resulted from the function calls inside the loops results in the slowdown. The following can be used to overcome the misspeculation overhead due to function calls:
+\begin{itemize}
+\item The compiler can be conservative and may not allow loops with function calls inside them to be executed in parallel regardless of whether the function call changes the dependence behaviour of the loop.  In this heuristic, we might still miss some opportunities where the function call is harmless.
+\item A more sophisticated inter-procedural dependence analysis technique can be used that is able to tell if the function call introduces new dependences in of the loop.
+\end{itemize}
+\textit{mcf}, \textit{hmmer}, \textit{milc}, \textit{namd} and \textit{bzip2} do not have a high percentage of successful speculative execution because these benchmarks have some loops with function calls introducing dependence.  The misspeculation percentage explains the small performance improvement over OpenMP parallelization for these benchmarks as compared to \textit{lbm}.\\
+Among the PolyBench/C benchmarks, \textit{gemm} and \textit{lu} has high percentage of speculative thread completion that accounts for their speedup.  For the four benchmarks - \textit{jacobi}, \textit{seidel}, \textit{cholesky}, \textit{dynprog} there is high percentage of thread completion but still these benchmarks result in slowdown.  The reason of performance degradation for these four benchmarks is investigated further.
 
 \subsubsection{L1 Cache Miss Rate}
 
-The TLS runtime works in close collaboration with the Transactional Memory (TM) runtime of BG/Q.  One of the most dominant BG/Q TM runtime overhead is caused by the loss of L1 cache support due to the L1 flush and bypass needed for the bookkeeping of speculative
+The TLS runtime works in close collaboration with the Transactional Memory (TM) runtime of BG/Q.  One of the most dominant BG/Q TLS runtime overhead is caused by the loss of L1 cache support due to the L1 flush and bypass needed for the bookkeeping of speculative
 state in L2. Though the L2 and L1P buffer load latencies are 13x and 5x higher than the L1 load latency, the L1 miss rate for the sequential ans different parallel versions of the code gives an idea about the performance gain or loss for the benchmarks.\\
-
 The Hardware Performance Monitor (HPM) library of BlueGene/Q is used to collect these statistics. Table~\ref{table:cache} gives the L1 cache misses for the sequential version and the three parallel versions of the SPEC2006 and PolyBench/C benchmarks.\\
 
 \begin{table}[h]
@@ -1100,15 +1083,13 @@ fdtd\_2d & 98 & 98 & 98 & 98 \\ \hline
 \label{table:cache}
 \end{table}
 
-For \textit{lbm}, the three parallel versions of the code results in more cache misses thus limiting the performance improvement.  But for \textit{mcf}, both OMP and speculative versions result in higher L1 hits which contributes to the performance improvement.  The speculative execution of \textit{sjeng} also results in a high L1 miss rate.  This is the effect of flushing the L1 cache before entering TLS region in the long-running mode.  Apart from the function calls inside TLS regions which introduce data dependences, the high L1 miss rate affects the performance. \\
-
-Similar effect can be seen for the two PolyBench/C benchmarks - \textit{cholesky} and \textit{dynprog}.  Though these two benchmarks have high percentage of successful completion of speculative threads, the speculative execution of the selected loops affects the cache performance due to locality of data between threads.  The cost of bringing the data again after flushing the cache accounts for the slowdown in these benchmarks. \\
-
-For \textit{jacobi} and \textit{seidel} benchmarks, though the speculative execution of the loops result in better cache utilization, the benchmarks experiences a slowdown.  The reason for this slowdown is investigated further.  The two benchmarks \textit{fdtd-2d} and \textit{gobmk} does not show any change in cache utilization for the three parallelization techniques.
+For \textit{lbm}, the three parallel versions of the code results in more L1 cache misses thus limiting the performance improvement.  But for \textit{mcf}, both automatic OpenMP and speculative versions result in higher L1 hits which contributes to the performance improvement.  The speculative execution of \textit{sjeng} also results in a high L1 miss rate.  This is the effect of flushing the L1 cache before entering TLS region in the long-running mode.  Apart from the function calls inside TLS regions which introduce data dependences (Table ~\ref{table:spec_committed}, the high L1 miss rate affects the performance for \textit{sjeng}.\\
+Similar effect can be seen for the two PolyBench/C benchmarks - \textit{cholesky} and \textit{dynprog}.  Though these two benchmarks have high percentage of successful completion of speculative threads as seen in table~\ref{table:spec_committed}, the speculative execution of the selected loops affects the cache performance due to locality of data between threads.  The cost of bringing the data again after flushing the cache accounts for the slowdown in these benchmarks. \\
+For \textit{jacobi} and \textit{seidel} benchmarks, though the speculative execution of the loops result in better cache utilization, the benchmarks experiences a slowdown.  The reason for this slowdown is investigated further.  The two benchmarks \textit{fdtd-2d} and \textit{gobmk} does not show any change in cache utilization for the three parallelization techniques, because the three parallelization techniques, due to discovery of no parallelizable loops, do not perform any code transformation than the optimized sequential version.
 
 \subsubsection{Instruction Path length increase}
 
-AutoOpenMP and speculative parallelization inserts call to OpenMP and TLS runtime functions respectively before and after speculative loops.  Also code needs to be inserted for saving the register values for speculative execution so that the system can be rolled back to a previous state in case of a roll back.  Code growth may also occur for SIMD parallelized version of the code due to insertion of new instructions and also for applying different loop optimizations (e.g loop unrolling) performed with the -qhot option.  The effect of the three parallelization techniques on code growth was observed and the results are given in table~\ref{table:instruction_path}. \\
+Automatic OpenMP and speculative parallelization inserts call to OpenMP and TLS runtime functions respectively before and after speculative loops.  Code also needs to be inserted for saving the consistent system state so that the system can be rolled back to a previous state in case of a dependence violation.  Code growth may also occur for SIMD parallelized version of the code due to insertion of new instructions and also for applying different loop optimizations (e.g loop unrolling) performed with the -qhot option.  The effect of the three parallelization techniques on code growth is observed and the results are given in table~\ref{table:instruction_path}.\\
 
 \begin{table}[h]
 \centering
@@ -1139,55 +1120,80 @@ fdtd\_2d  & 0 \% & 0 \% & 79 \% \\ \hline
 \label{table:instruction_path}
 \end{table}
 
-As seen in the table, the code growth for PolyBench/C benchmarks is larger than the SPEC2006 benchmarks.  The code growth happens because the loops constitute large part of the PolyBench/C benchmarks and applying optimizations to the effects the code size the most.  For SPEC2006 benchmarks the code growth is pretty small, the highest being for the speculative parallelization of the \textit{h264ref} benchmark because the highest number of loops were speculatively parallelized for this benchmark. \\
+As seen in the table~\ref{table:instruction_path}, the code growth for PolyBench/C benchmarks is larger than the SPEC2006 benchmarks.  The code growth is due to loops constituting major portion of the PolyBench/C benchmarks. Applying optimizations to the loops effects the code size the most.  For SPEC2006 benchmarks the code growth is relatively smaller than PolyBench/C benchmarks, the highest being for the speculative parallelization of the \textit{h264ref} benchmark because a large number of loops are speculatively parallelized for this benchmark. \\
+\textit{jacobi} and \textit{seidel} from the PolyBench/C benchmarks experience a massive code growth that explains their slowdown.  The code growth is due to two different reasons - 1. The loops parallelized constitute the maximum code portion of the benchmark. 2. The memory footprint of the loops speculatively parallelized are large and therefore, saving register context for speculative execution of the loops adds a significantly large number of instructions to these two benchmarks.
 
-\textit{jacobi} and \textit{seidel} from the PolyBench/C suite experiences a massive code growth which explains the reason for their slowdown.  The code growth happens for two reasons - 1. The loops parallelized constitutes the maximum code portion of the benchmark. 2. The memory footprint of the loops speculatively parallelized are large so the register manipulation for speculative execution for the loops adds lots of instructions to the two benchmarks.
+\section{Filtering Loops with Function Calls that have Side Effects }
+
+Section~\ref{sec:mispeculation} shows that for some benchmarks (\textit{h264ref}, \textit{sjeng}), allowing speculative execution of loops with function calls introduces huge misspeculation overhead that results in slowdown.  The function calls inside the loop bodies introduce dependences across iterations of the loop.  Static analysis of the compiler was not able to detect these dependences.  Inter-procedural dependence analysis with the help of profiling is hard to do, therefore, these dependences are also not detected through runtime dependence profiling.  There can be two solutions to overcome the overhead: 
+\begin{itemize}
+\item Perform a more sophisticated compile-time inter-procedural dependence analysis to discover these dependences.
+\item Use a conservative heurisitic to not allow the speculative execution of loops that has non-side-effect-free function calls inside their body.
+\end{itemize}
+In this section, the impact of using the second option on the performance of the loops in the SPEC2006 and PolyBench/C benchmarks is explored. 
+\begin{figure}[h]
+\centering
+\includegraphics[scale=0.56]{./pdf/spec_modified.pdf}
+\caption{Performance does improves for the modified heuristic for SPEC2006 benchmarks because the loops that were having dependence due to to function calls are not executed speculatively in parallel.  There is not performance degradation indicating that independent loops that have function calls do not impact the performance of the SPEC2006 benchmarks.}
+\label{fig:spec_modified}
+\end{figure}
+As seen in figure~\ref{fig:spec_modified}, not allowing loops with non-side-effect-free function calls have a huge performance impact on the \textit{h264ref} and \textit{sjeng} benchmarks.  The percentage of successfully committed threads jumps up from 12\% to 96\% for \textit{h264ref} and from 8\% to 97\% for \textit{sjeng}.  Using this heuristic also improves the performance for \textit{hmmer} because hmmer also contains some loops where dependence is introduced due to function calls.  Performance does not degrade for any of these benchmarks indicating that execution of loops with non-side-effect-free function calls that do not introduce dependence are not significant for these benchmarks. \\
+As seen in figure~\ref{fig:poly_modified}, the performance of the PolyBench/C benchmarks does not change for using the heuristic.  Mostly PolyBench/C benchmarks are kernel benchmarks and the loops inside them do not contain function calls.
+
+
+
+\begin{figure}[h]
+\centering
+\includegraphics[scale=0.56]{./pdf/polly_modified.pdf}
+\caption{Performance does not change for the modified heuristic for PolyBench/C benchmarks because the loops inside them are small kernel loops that do not contain function calls}
+\label{fig:poly_modified}
+\end{figure}
 
 \chapter{Conclusion}
-\chapter{Related Work}
+\label{chapter:conclusion}
 
-In this chapter, the previous work on TLS and data dependence profiling used for TLS is given.  There are two separate sections in this chapter - Section 1 summarizes the previous work on TLS while Section 2 gives related work for data dependence profiling.
+TODO
+\chapter{Related Work}
+\label{chapter:related work}
+
+This chapter summarizes the previous research on Thread level speculation.  Related work on the use of data dependence profiling for TLS is also summarized.  Section 1 summarizes the previous work on TLS while Section 2 gives related work on the use of data dependence profiling in TLS.
 
 \section{Thread Level Speculation}
 
-One of the earlier works on TLS is based on Address Resolution Buffers (ARB) by Franklin \textit{et al}~\cite{ARB}.  They propose a hardware mechanism, ARB for performing dynamic reordering of memory references.  ARB has support for the following features - 1) dynamic disambiguation of memory references 2) multiple memory
-references per cycle, 3) out-of-order execution of memory references, 4) unresolved loads and stores, 5) speculative loads and stores, and 6) memory renaming. ARB is a shared table that is used to track speculative loads and stores.  The scheme allows speculative loads and speculative stores by keeping the uncommitted store values in the hardware structure and forwarding them to subsequent loads that require the value.\\
-After the work by Franklin \textit{et al.}, multiple proposals have been made to move speculative data into each core’s private cache or write buffer, and leverage the cache coherence protocol for memory disambiguation.   In contrast to ARB that uses a centralized buffer to support speculative versions, the work of Vijaykumar \textit{et al.}'s approach, called the Speculative Versioning Cache (SVC), uses distributed caches to eliminate the latency and bandwidth problems of the ARB~\cite{Gopal}. The SVC approach is based on unification of cache coherence and speculative versioning by using an organization similar to snooping bus-based coherent caches. Memory references that gets a hit in the private cache do not use the bus as in an Symmetric Multi-Processor. The committed tasks do not write back the speculative versions all at one time. Instead, versions are marked, together, as committed at commit time, without performing any data movement. Each cache line is individually handled when it is accessed the next time.\\
+One of the earlier works on TLS is based on Address Resolution Buffers (ARB) by Franklin \textit{et al}~\cite{ARB}.  They propose a hardware mechanism, ARB for performing dynamic reordering of memory references.  ARB has support for the following features - 1) dynamic disambiguation of memory references 2) multiple memory references per cycle, 3) out-of-order execution of memory references, 4) unresolved loads and stores, 5) speculative loads and stores, and 6) memory renaming. ARB is a shared table that is used to track speculative loads and stores.  The scheme allows speculative loads and speculative stores by keeping the uncommitted store values in the hardware structure and forwarding them to subsequent loads that require the value.\\
+Following the work by Franklin \textit{et al.}, multiple proposals have been made to move speculative data into each core's private cache or write buffer, and use the cache coherence protocols for memory disambiguation.   In contrast to ARB that uses a centralized buffer to support speculative versions, the work of Vijaykumar \textit{et al.}, called the \textit{Speculative Versioning Cache (SVC)}, uses distributed caches to eliminate the latency and bandwidth problems of the ARB~\cite{Gopal}. The SVC approach is based on unification of cache coherence and speculative versioning by using an organization similar to snooping bus-based coherent caches. Memory references that gets a hit in the private cache do not use the bus as in an SMPs. The committed tasks do not write back the speculative versions all at one time. Instead, versions are marked, together, as committed at commit time, without performing any data movement. Each cache line is individually handled when it is accessed the next time.\\
 Lance Hammond \textit{et al.} describes the implementation of speculative execution in a chip multi-processor (CMP), called Hydra~\cite{Hydra}. Their approach a hardware+software hybrid mechanism (a number of software speculation control handlers and modifications to the shared secondary cache memory system of the CMP) to achieve TLS. Their results show that TLS is profitable for applications with substantial amount of medium-grained loops.  When the granularity of parallelism is too small or the available \textit{inherent} parallelism in the application is low, the overhead of the software speculation handlers overwhelms the potential performance benefits from TLS.\\
-Steffan \textit{et al.} proposes and evaluates a TLS system that scales to any machine size.  The strategy is a straightforward extension of writeback invalidation-based cache coherence~\cite{steffanISCA00}. The scheme has (i) a notion of whether a cache line has been speculatively loaded and/or speculatively modified; (ii) a guarantee that a speculative cache line will not be propagated to regular memory, and that speculation will fail if a speculative cache line is replaced.  They add three new speculative coherence messages and speculative cache states in the cache coherence protocol.  They show that using their model, applications scale from single-chip multiprocessors or simultaneously multi-threaded processors up to large-scale machines which might use single-chip multiprocessors.\\
-Luis Ceze \textit{et al.} describes a an approach to disambiguate memory references so that the dependences in the code can be checked while execution and threads can be committed or rolled back accordingly~\cite{bulk}.  They hash-encode a thread's access information in a signature, and then add operations that efficiently process sets of addresses from the signature.  They employ a Bloom-filter-based compact representation of a thread's access information.  They call their mechanism \textit{Bulk} operation as they operate on a set of addresses.  They show that, despite its simplicity, \textit{Bulk} has competitive performance with more complex schemes.\\
+Steffan \textit{et al.} proposes and evaluates a TLS system that scales to any machine size.  Their strategy is a straightforward extension of writeback invalidation-based cache coherence~\cite{steffanISCA00}. The scheme has 1. a notion of whether a cache line has been speculatively loaded and/or speculatively modified; 2. a guarantee that a speculative cache line will not be propagated to regular memory, and that speculation will fail if a speculative cache line is replaced.  They add three new speculative coherence messages and speculative cache states in the cache coherence protocol.  They show that using their model, applications scale from single-chip multiprocessors or simultaneously multi-threaded processors up to large-scale machines which might use single-chip multiprocessors.\\
+Luis Ceze \textit{et al.} describes an approach to disambiguate memory references so that the dependences in the code can be checked during program execution and threads can be committed or rolled back accordingly~\cite{bulk}.  They hash-encode a thread's access information in a \textit{signature}, and then add operations that efficiently process sets of addresses from the signature.  They employ a \textit{Bloom-filter-based} compact representation of a thread's access information.  They call their mechanism \textit{Bulk} operation as they operate on a set of addresses.  They show that, despite its simplicity, \textit{Bulk} has competitive performance with more complex schemes.\\
 Steffan\textit{ et al.} shows that the performance of a TLS system is dependent on the way threads communicate values among them~\cite{value_communication}.  They apply three different actions - value prediction, dynamic synchronization, and hardware instruction prioritization to improve value communication among threads. Their technique first explores how \textit{silent stores} (value of the memory location before the store is the same as the value of the location after the store) can be exploited within TLS. The TLS system avoids data dependence violations and makes dependent store-load pair independent if the store is silent.  In this way the TLS system reduces the coherence traffic as well as future update traffic. The silent store approach yields similar performance to value predictors but requires less complex design.  They also use some compiler heuristics to select loops for TLS (based on the execution time, number of iterations of the loop etc.) and apply compiler optimization (e.g loop unrolling, reducing critical forwarding path of values between loop iterations etc.) that significantly improves TLS performance.\\
-\\
-\\
-\\
 
 \subsubsection{Loop Selection for Speculative Execution}
 
-Because loops are normally targeted for TLS, there has been work to provide heuristics to select loops for speculative execution.\\
-Colohan \textit{et al.} empirically studies the impact of thread size on the performance of loops~\cite{colohan1}. They employ different techniques to unroll loops in order to determine the best thread size per loop. They also propose a runtime system to measure the performance and select each loop dynamically. Due to the runtime overhead, the system can only select loops locally without considering loop nesting.\\
+Because loops are normally targeted for TLS, different heuristics are proposed to select candidate loops for speculative execution.\\
+Colohan \textit{et al.} empirically studies the impact of thread size on the performance of loops~\cite{colohan1}. They employ different techniques to unroll loops in order to determine the best thread size per loop. They also propose a run-time system to measure the performance and select each loop dynamically. Due to the run-time overhead, the system can only select loops locally without considering loop nesting.\\
 Oplinger \textit{et al.} proposes and evaluates a static loop selection algorithm using simulation~\cite{olukotun}. In their algorithm, they select the best loops in each level of dynamic loop nest as possible candidates to be parallelized and then compute the frequency with which each loop is selected as best loop. Finally, they select the parallelized loops based on the computed frequencies. The concept of dynamic loop nest is similar to the loop tree proposed in our study. However, this technique is only used to guide the heuristic in context-insensitive loop selection. Their performance estimation is obtained directly from simulation, and does not consider the effect of compiler optimization.\\
 Chen \textit{et al.} proposes a dynamic loop selection framework for Java program~\cite{chen1}. They use hardware to extract useful information, such as dependence timing, and speculative state requirements and then estimate the speedup for a loop. Their technique is similar to the runtime system proposed by Colohan \textit{et al.} and can only select loops within a simple loop nested program. Considering the global loop nesting relations and selecting the loops globally introduces significant overhead for the run-time system.\\
-Marcuello \textit{et al.} proposes a thread spawning scheme that supports spawning threads from any point in the program~\cite{marcuello}. They use profile to identify appropriate thread spawning points with more emphasis on thread predictability.\\
-Wang \textit{et al.} proposes different techniques to select loops for TLS~\cite{loopselection}.  They use a construct called loop-graph which describes the different nesting relations among loops.  Only one loop from a loop nest is parallelized based on some heuristics.  They use run-time profile information to measure the performance improvement of parallelizing a loop.  They also apply graph-pruning to reduce the "selection problem" size (which is otherwise NP complete).  Most importantly, they show that the dynamic behaviour of a loop is sensitive to its calling context (for some invocation, the loop may gain performance improvement and for some, it may not).  They attach the calling context information in the loop graph.
+Marcuello \textit{et al.} proposes a thread spawning scheme that supports spawning threads from any point in the program~\cite{marcuello}. They use profile information to identify appropriate thread spawning points with more emphasis on thread predictability.\\
+Wang \textit{et al.} proposes different techniques to select loops for TLS~\cite{loopselection}.  They use a construct called \textit{loop-graph} that describes the different nesting relations among loops.  Only one loop from a loop nest is parallelized based on some heuristics.  They use run-time profile information to measure the performance improvement of parallelizing a loop.  They also apply graph-pruning to reduce the "selection problem" size (which is otherwise NP complete).  Most importantly, they show that the dynamic behaviour of a loop is sensitive to its calling context (for some invocation, the loop may gain performance improvement and for some, it may not).  They attach the calling context information in the loop graph.
 
 \section{Data Dependence Profiling for TLS}
 
-The necessity of data dependence profiling to find TLS candidate loops that cannot be discovered by static dependence analysis is explored in the literature.\\
-Ju \textit{et al.} proposed a unified framework to exploit both data and control speculation targeting specifically for memory latency hiding~\cite{ju_spec}. The speculation is exploited by hoisting load instructions across potentially aliasing store instructions or conditional branches.  The framework also contains recovery model which relies on compiler-generated explicit recovery blocks.  Their framework shows modest performance improvement in SPECInt95 benchmarks by shortening critical paths despite some undesirable side effects, such as recovery code penalty during misspeculation and higher register pressures.\\
-Chen \textit{et al.} propose a data dependence profiler targeted at speculative optimizations~\cite{chen_spec}. They perform speculative PRE and code scheduling, using a naive profiler and speculative support provided through the ALAT (Advanced Load Address Table) in the Itanium processors. Their non-sampling profiler has a slowdown of up to 100x, and they propose sampling techniques to overcome this problem. They use a shadow space with a simple hashing scheme to facilitate fast address comparison for detecting data dependences.\\
+The necessity of data dependence profiling to find TLS candidate loops that cannot be discovered by static dependence analysis is explored.  This section describes the previous work on data dependence profiling and the use of it in the case of TLS.\\
+Ju \textit{et al.} proposed a unified framework to exploit both data and control speculation targeting specifically for memory latency hiding~\cite{ju_spec}. The speculation is exploited by hoisting load instructions across potentially aliasing store instructions or conditional branches.  The framework also contains recovery model which relies on compiler-generated explicit recovery blocks.  Their framework shows modest performance improvement in SPECInt95 benchmarks by shortening critical paths despite some side effects, such as recovery code penalty during misspeculation and higher register pressures.\\
+Chen \textit{et al.} propose a data dependence profiler targeted at speculative optimizations~\cite{chen_spec}. They perform speculative Partial Redundancy Elimination (PRE) and code scheduling, using a naive profiler and speculative support provided through the ALAT (Advanced Load Address Table) in the Itanium processors. Their non-sampling profiler has a slowdown of up to 100x, and they propose sampling techniques to overcome this problem. They use a shadow space with a simple hashing scheme to facilitate fast address comparison for detecting data dependences.\\
 Lin \textit{et al.} propose a compiler framework for speculative analysis and optimizations~\cite{lin_spec}.  The framework is based on a speculative SSA (Static Single Assignment) form to incorporate speculative information for both data and control speculation.  Speculative SSA integrates the alias information directly into the intermediate representation using explicit \textit{may modify operator} and \textit{may reference operator}. Their speculative analysis is assisted by both \textit{alias profiles} and heuristic rules.\\
 The Multiscalar compiler selects tasks by walking the Control Flow Graph (CFG) and accu-
-mulating basic blocks into tasks using a variety of heuristics~\cite{multiscalar}. The task selection methodology for the Multiscalar compiler was revisited by Johnson \textit{et al}~\cite{mincut}.  Instead of using a heuristic to collect basic blocks into tasks, the CFG is now annotated with weights and broken into tasks using a min-cut algorithm. These compilers assume special hardware for dispatching threads; they do not specify when a thread should be launched.\\
+mulating basic blocks into tasks using a variety of heuristics~\cite{multiscalar}. The task selection methodology for the Multiscalar compiler is revisited by Johnson \textit{et al}~\cite{mincut}.  Instead of using a heuristic to collect basic blocks into tasks, the CFG is annotated with weights and broken into tasks using a min-cut algorithm. These compilers assume special hardware for dispatching threads; they do not specify when a thread should be launched.\\
 In SPSM, loop iterations are selected by the compiler as speculative threads~\cite{SPSM}. They use a special instruction \textit{fork} that allows the compiler to specify when tasks begin executing. In addition, SPSM recognizes the potential benefits from prefetching but proposes no techniques to exploit it. \\
 Bhowmik and Franklin build a framework for speculative multithreading on the SUIF-MachSUIF platform~\cite{bhowmik}. Within this framework, they consider dependence-based task selection algorithms. Like Multiscalar, they focus on compiling the whole program for speculation, but allow the compiler to specify a spawn
 location as in SPSM.\\
-Du et al. propose a cost-driven compilation framework to perform speculative parallelization~\cite{du_spec}. The compiler uses dependence profile for task selection and for partitioning speculative loops into serial and parallel portions. The profiler tracks both intra- and carried- true dependences for speculative loops. Carried-dependences are used to guide the parition of loop bodies into a serial and a parallel portion. Since dependences originated from the serial portion do not trigger roll-back in the parallel portion, the key part of their framework is to move source computation of frequent dependences (called violating candidate) to the serial portion through instruction reording. A cost model is used to select the optimal loop partition, which is based on the size of serial portion and the misspeculation cost of the parallel portion. The latter is computed by combining re-execution cost of individual nodes weighted by probabilities of carried-dependences (for violating candidates) and intra-iteration dependences (for others).  They achieve a 8\% speedup for the SPECInt2000 benchmarks.\\
-Quinones \textit{et al.} evaluated the Mitosis compiler for exploiting speculative thread-level parallelism~\cite{mitosis}.  Mitosis compiler uses both dependence and edge-profiles for 1)generating speculative precomputation slices (p-slice) and 2) selecting spawning pairs. P-slice predicts live-in values for speculative tasks and contributes to the serial portion of the speculative execution. To minimize p-slice overhead while maximizing the accuracy, the compiler uses dependence- and edge-profiles to prune instructions in p-slices. To select spawning pairs, another profile analyzes the sequential execution trace to model the speculative execution time of each candidate spawning pair without considering inter-task memory conflicts. Instead, in this execution model, task squashes is mostly determined by mispredication probability of p-slices. They get a 2.2x speedup for the OLDEN benchmarks on their simulator.\\
+Du \textit{et al.} propose a cost-driven compilation framework to perform speculative parallelization~\cite{du_spec}. The compiler uses dependence profile for task selection and for partitioning speculative loops into serial and parallel portions. The profiler tracks both intra- and loop-carried- true dependences for speculative loops. Loop-carried-dependences are used to guide the parition of loop bodies into a serial and a parallel portion. Since dependences originated from the serial portion do not trigger roll-back in the parallel portion, the key part of their framework is to move source computation of frequent dependences (called violating candidate) to the serial portion through instruction reordering. A cost model is used to select the optimal loop partition, which is based on the size of serial portion and the misspeculation cost of the parallel portion. The latter is computed by combining re-execution cost of individual nodes weighted by probabilities of carried-dependences (for violating candidates) and intra-iteration dependences (for others).  They achieve a 8\% speedup for the SPECInt2000 benchmarks.\\
+Quinones \textit{et al.} evaluated the Mitosis compiler for exploiting speculative thread-level parallelism~\cite{mitosis}.  Mitosis compiler uses both dependence and edge-profiles for 1. generating speculative precomputation slices (p-slice) and 2. selecting spawning pairs. P-slice predicts live-in values for speculative tasks and contributes to the serial portion of the speculative execution. To minimize p-slice overhead while maximizing the accuracy, the compiler uses dependence- and edge-profiles to prune instructions in p-slices. To select spawning pairs, another profile analyzes the sequential execution trace to model the speculative execution time of each candidate spawning pair without considering inter-task memory conflicts. Instead, in this execution model, task squashes is mostly determined by mispredication probability of p-slices. They get a 2.2x speedup for the OLDEN benchmarks on their simulator.\\
 Wu \textit{et al.} propose a cost model for compiler-driven task selection for TLS~\cite{dprof}.  The model employs profile-based analysis of may-dependences to estimate the probability of successful speculation.  Their profiling tool, \textit{DProf}, is able to  measure dependence probability and independence window of loops. They provide two techniques - dependence windows (the number of iterations that can be executed in parallel without affecting the output) and dependence clustering (regions of the loop's iteration space with large independence windows that makes that portion profitable to execute in parallel).  One improtant finding is that there is little variability in independence window width in the hot loops for the SPEC2000 benchmarks. Loops are either parallel or serial with an independence window width of 1.\\
 Kim \textit{et al.} propose a scalable approach to data-dependence profiling that addresses both runtime and memory overhead in a single framework~\cite{sd3}.  Their technique, called \textit{SD3}, reduces the runtime overhead by parallelizing the dependence profiling step itself. To reduce the memory overhead, they compress memory accesses that exhibit stride patterns and compute data dependences directly in a compressed format. For stride detection, they use a \textit{finite state machine} (FSM).SD3 reduces the runtime overhead by a factor of  9.7× on  32 cores and reduces memory consumption by 20x with a 16x speedup in profiling time.  They also show that the dependence behaviour for different inputs \textit{does not} change for OmpSCR benchmarks and changes very less (correlation 0.98 among the dependence pairs discovered in the loops) for SPEC2006 benchmarks.  This finding is important and supports the findings of my research.\\
 POSH is a TLS compiler built on top of gcc~\cite{posh}. POSH performs a partitioning of the code into TLS tasks and considers both subroutines and loops. POSH also uses a simple profiling pass to discard ineffective tasks.  While choosing tasks beneficial for speculation, POSH considers the task size and the squash frequency which is obtained by simulation of the parallel execution.  L2 cache misses are also considered by the profiler to perform prefetching analysis.\\
 Vanka \textit{et al.} approaches data dependence profiling from a set-based approach~\cite{vanka}.  Rather than tracking pair-wise dependences, they identify important dependence relationships at compile time, group said relationships into sets, and then construct and operate directly on the sets at runtime.  They use \textit{Signatures}, an efficient set representation based on Bloom filters, to to trade-off performance and accuracy.\\
-None of these approaches provide a solution for loops which has varied dependence behaviour for different executions.
+None of these approaches provide a solution for loops which has varied dependence behaviour for different executions or gives a solution to the problem of combining multiple data dependnece profiles obtained using different inputs to the program.
 
 
 %\include{Chapters/introduction}
